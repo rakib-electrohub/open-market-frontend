@@ -49,10 +49,11 @@ function VideoPlayer({ url }) {
   return <video src={url} controls className="w-full h-full object-contain bg-black" />;
 }
 
-export default function ProductDetail() {
+export default function ProductDetail({ initialData }) {
   const { id } = useParams();
-  const [product, setProduct] = useState(null);
-  const [reviews, setReviews] = useState([]);
+  const hasInitialData = Boolean(initialData);
+  const [product, setProduct] = useState(() => initialData?.product || null);
+  const [reviews, setReviews] = useState(() => initialData?.reviews || []);
   const [selectedImage, setSelectedImage] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -61,22 +62,19 @@ export default function ProductDetail() {
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState(null);
   const [cart, setCart] = useState(() => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hasInitialData);
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
     const loadProduct = async () => {
       try {
-        const prod = await apiClient.entities.Product.get(id).catch(() => null);
-
-        const revs = await apiClient.entities.Review.filter({
-          product_id: id,
-          is_approved: true
-        }).catch(() => []);
-
-        setProduct(prod);
-        setReviews(revs);
+        if (!hasInitialData) {
+          const prod = await apiClient.entities.Product.get(id).catch(() => null);
+          const revs = await apiClient.entities.Review.filter({ product_id: id, is_approved: true }).catch(() => []);
+          setProduct(prod);
+          setReviews(revs);
+        }
 
         try {
           const user = await apiClient.auth.me();
@@ -99,7 +97,7 @@ export default function ProductDetail() {
     };
 
     loadProduct();
-  }, [id]);
+  }, [hasInitialData, id]);
 
   // Sync real review data back to product entity so product cards show accurate info
   useEffect(() => {
@@ -130,7 +128,7 @@ export default function ProductDetail() {
     sku: product.sku || product.id,
     offers: {
       "@type": "Offer",
-      url: `${window.location.origin}/product/${product.id}`,
+      url: `${typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")}/product/${product.id}`,
       priceCurrency: "BDT",
       price: String(price),
       availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",

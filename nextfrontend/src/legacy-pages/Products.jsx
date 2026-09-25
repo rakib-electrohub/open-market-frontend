@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { apiClient } from "@/api/apiClient";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "@/lib/next-router";
+import { Link } from "@/lib/next-router";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/store/ProductCard";
@@ -33,15 +34,16 @@ const mergeUniqueProducts = (...lists) => {
   });
 };
 
-export default function Products() {
-  const [products, setProducts] = useState([]);
+export default function Products({ initialData }) {
+  const hasInitialData = Boolean(initialData);
+  const [products, setProducts] = useState(() => initialData?.products || []);
   const [filtered, setFiltered] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState("");
   const [cart, setCart] = useState(() => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } });
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(() => initialData?.hasMore ?? true);
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
   const loadMoreRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -52,7 +54,7 @@ export default function Products() {
   const [sort, setSort] = useState("popularity");
   const [selectedMainCategory, setSelectedMainCategory] = useState("");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [categoryOptions, setCategoryOptions] = useState(() => initialData?.categories || []);
   const [priceFilterEnabled, setPriceFilterEnabled] = useState(priceFilterDefaultEnabled);
   const [priceRange, setPriceRange] = useState([0, maxPriceFilter]);
   const [minRating, setMinRating] = useState(0);
@@ -77,6 +79,7 @@ export default function Products() {
 
   const urlParams = new URLSearchParams(location.search);
   const searchQuery = urlParams.get("search") || "";
+  const currentPage = Math.max(1, Number(urlParams.get("page")) || 1);
   const categoryParam = urlParams.get("category") || "";
   const mainCategoryParam = urlParams.get("main_category") || "";
   const subCategoryParam = urlParams.get("subcategory") || "";
@@ -97,6 +100,11 @@ export default function Products() {
   }, [location.search]);
 
   useEffect(() => {
+    if (hasInitialData) {
+      setLoading(false);
+      return undefined;
+    }
+
     Promise.all([
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-sold_count", PRODUCTS_PAGE_SIZE, 0),
       apiClient.entities.Category.list("-created_date", 200),
@@ -111,7 +119,7 @@ export default function Products() {
       setHasMore(prods.length === PRODUCTS_PAGE_SIZE);
       setLoading(false);
     });
-  }, []);
+  }, [hasInitialData]);
 
   useEffect(() => {
     const enableLoading = () => setHasUserScrolled(true);
@@ -407,6 +415,13 @@ export default function Products() {
             )}
             <div ref={loadMoreRef} aria-hidden="true" className="h-1" />
             {loadingMore && <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>}
+            {hasMore && !loadingMore && (
+              <div className="flex justify-center py-6">
+                <Link to={`/products?page=${currentPage + 1}`} className="text-sm font-medium text-primary hover:underline">
+                  Next product page
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </main>

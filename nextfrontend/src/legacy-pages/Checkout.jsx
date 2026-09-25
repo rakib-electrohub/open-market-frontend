@@ -275,14 +275,6 @@ export default function Checkout() {
       await apiClient.entities.Coupon.update(coupon.id, { used_count: (coupon.used_count || 0) + 1 }).catch(() => {});
     }
 
-    // Update sold_count
-    orderedItems.forEach(async (item) => {
-      try {
-        const prod = await apiClient.entities.Product.get(item.product_id);
-        if (prod) await apiClient.entities.Product.update(item.product_id, { sold_count: (prod.sold_count || 0) + item.quantity });
-      } catch {}
-    });
-
     // Clear cart
     if (!directBuyItem) {
       localStorage.setItem("cart", "[]");

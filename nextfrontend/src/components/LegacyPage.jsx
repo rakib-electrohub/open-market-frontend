@@ -50,7 +50,7 @@ import StaffDashboard from "@/legacy-pages/staff/StaffDashboard";
 
 const pages = { Home, Products, ProductDetail, Cart, Checkout, Orders, Wishlist, Account, Contact, FlashSales, FAQ, Login, Register, ForgotPassword, ReturnPolicy, PrivacyPolicy, Terms, ShippingInfo, SellerRegister, SellerDashboard, SellerProducts, SellerInventory, SellerChats, StorePage, AdminDashboard, AdminProducts, AdminOrders, AdminFlashSales, AdminCoupons, AdminAnalytics, AdminSellers, AdminBanners, AdminSiteSettings, AdminMessages, AdminReviews, AdminChats, AdminFAQ, AdminInventory, AdminUsers, AdminStaff, StaffDashboard };
 
-export default function LegacyPage({ page }) {
+export default function LegacyPage({ page, initialData }) {
   const Page = pages[page];
   if (!Page) return null;
   return (
@@ -58,7 +58,7 @@ export default function LegacyPage({ page }) {
       <QueryClientProvider client={queryClientInstance}>
         <PersistentToastProvider>
           <Suspense fallback={<div className="min-h-screen bg-background" />}>
-            <Page />
+            <Page initialData={initialData} />
           </Suspense>
           <Toaster />
         </PersistentToastProvider>

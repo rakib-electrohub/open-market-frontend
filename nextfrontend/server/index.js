@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { createAppPool, initDatabase as initAppDatabase, installAutoDatabaseRepair } from './database.js';
 import { parseOrder } from './security-utils.js';
+import { invalidateEntityCache } from '../src/server/cache.js';
 
 dotenv.config();
 
@@ -677,6 +678,126 @@ const ensureEntityWriteAllowed = async ({ req, entity, id = null, action, payloa
   throw error;
 };
 
+const inventoryReleasedStatuses = new Set(['cancelled', 'refunded']);
+
+const applyInventoryDelta = async (client, items, stockDelta, soldDelta) => {
+  const quantities = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const productId = String(item?.product_id || '');
+    const quantity = Number(item?.quantity || 0);
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      const error = new Error('Order contains an invalid product quantity');
+      error.status = 400;
+      throw error;
+    }
+    quantities.set(productId, (quantities.get(productId) || 0) + quantity);
+  }
+
+  if (quantities.size === 0) {
+    const error = new Error('Order must contain at least one product');
+    error.status = 400;
+    throw error;
+  }
+
+  for (const [productId, quantity] of quantities) {
+    const result = await client.query(
+      "SELECT id, data FROM entities WHERE entity = 'Product' AND id = $1 FOR UPDATE",
+      [productId]
+    );
+    if (!result.rowCount) {
+      const error = new Error(`Product not found: ${productId}`);
+      error.status = 404;
+      throw error;
+    }
+
+    const product = result.rows[0].data || {};
+    if (product.is_active === false || product.approval_status === 'rejected') {
+      const error = new Error(`Product is not available: ${product.name || productId}`);
+      error.status = 409;
+      throw error;
+    }
+    const currentStock = Number(product.stock || 0);
+    const nextStock = currentStock + stockDelta * quantity;
+    if (nextStock < 0) {
+      const error = new Error(`Insufficient stock for ${product.name || productId}`);
+      error.status = 409;
+      throw error;
+    }
+
+    const nextSoldCount = Math.max(0, Number(product.sold_count || 0) + soldDelta * quantity);
+    await client.query(
+      'UPDATE entities SET data = $1, updated_date = NOW() WHERE entity = \'Product\' AND id = $2',
+      [{ ...product, stock: nextStock, sold_count: nextSoldCount }, productId]
+    );
+  }
+
+  return [...quantities.keys()];
+};
+
+const createOrderWithInventory = async (payload) => {
+  const client = await pool.connect();
+  const shouldReserve = !inventoryReleasedStatuses.has(payload.status);
+  try {
+    await client.query('BEGIN');
+    const productIds = shouldReserve ? await applyInventoryDelta(client, payload.items, -1, 1) : [];
+    const data = { ...payload, inventory_state: shouldReserve ? 'reserved' : 'released' };
+    const id = crypto.randomUUID();
+    const result = await client.query(
+      'INSERT INTO entities (id, entity, data) VALUES ($1, $2, $3) RETURNING id, data, created_date',
+      [id, 'Order', data]
+    );
+    await client.query('COMMIT');
+    productIds.forEach((productId) => invalidateEntityCache('Product', { id: productId }));
+    return mapRow(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const updateOrderWithInventory = async (req, id, payload) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const existing = await client.query("SELECT id, data, created_date FROM entities WHERE entity = 'Order' AND id = $1 FOR UPDATE", [id]);
+    if (!existing.rowCount) {
+      const error = new Error('Record not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const current = mapRow(existing.rows[0]);
+    const { inventory_state: _ignoredInventoryState, ...safePayload } = payload;
+    const nextData = { ...existing.rows[0].data, ...safePayload };
+    const wasReserved = existing.rows[0].data.inventory_state === 'reserved';
+    const willBeReleased = inventoryReleasedStatuses.has(nextData.status);
+    const productIds = [];
+
+    if (wasReserved && willBeReleased) {
+      productIds.push(...await applyInventoryDelta(client, current.items, 1, -1));
+      nextData.inventory_state = 'released';
+    } else if (!wasReserved && !willBeReleased && existing.rows[0].data.inventory_state === 'released') {
+      productIds.push(...await applyInventoryDelta(client, current.items, -1, 1));
+      nextData.inventory_state = 'reserved';
+    }
+
+    const result = await client.query(
+      "UPDATE entities SET data = $1, updated_date = NOW() WHERE entity = 'Order' AND id = $2 RETURNING id, data, created_date",
+      [nextData, id]
+    );
+    await client.query('COMMIT');
+    productIds.forEach((productId) => invalidateEntityCache('Product', { id: productId }));
+    return mapRow(result.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const canReadEntityRecord = async (req, entity, record) => {
   const rows = await applyReadableRows(req, entity, [{ id: record.id, data: record, created_date: record.created_date }]);
   return rows.length > 0;
@@ -1181,18 +1302,25 @@ app.post('/api/entities/:entity', async (req, res) => {
   try {
     const entity = req.params.entity;
     assertEntityName(entity);
-    const id = crypto.randomUUID();
     const payload = await ensureEntityWriteAllowed({
       req,
       entity,
       action: 'create',
       payload: normalizeUploadUrlsInData(req.body),
     });
+    if (entity === 'Order') {
+      const record = await createOrderWithInventory(payload);
+      return res.status(201).json(record);
+    }
+
+    const id = crypto.randomUUID();
     const result = await pool.query(
       'INSERT INTO entities (id, entity, data) VALUES ($1, $2, $3) RETURNING id, data, created_date',
       [id, entity, payload]
     );
-    res.status(201).json(mapRow(result.rows[0]));
+    const record = mapRow(result.rows[0]);
+    invalidateEntityCache(entity, record);
+    res.status(201).json(record);
   } catch (error) {
     res.status(error.status || 500).json({ message: error.message });
   }
@@ -1201,28 +1329,13 @@ app.post('/api/entities/:entity', async (req, res) => {
 app.post('/api/guest-order', async (req, res) => {
   try {
     const payload = req.body;
-
-    const id = crypto.randomUUID();
     const orderNumber = payload.order_number || ("OMB-" + Date.now());
-
-    const result = await pool.query(
-      `
-      INSERT INTO entities (id, entity, data)
-      VALUES ($1, $2, $3)
-      RETURNING id, data, created_date
-      `,
-      [
-        id,
-        'Order',
-        {
-          ...payload,
-          order_number: orderNumber,
-          is_guest: true
-        }
-      ]
-    );
-
-    res.status(201).json(mapRow(result.rows[0]));
+    const record = await createOrderWithInventory({
+      ...payload,
+      order_number: orderNumber,
+      is_guest: true,
+    });
+    res.status(201).json(record);
   } catch (error) {
     res.status(error.status || 500).json({
       message: error.message
@@ -1247,7 +1360,9 @@ app.post('/api/guest-order/track', async (req, res) => {
     if (!result.rowCount) {
       return res.status(404).json({ message: 'Order not found or phone number does not match' });
     }
-    res.json(mapRow(result.rows[0]));
+    const record = mapRow(result.rows[0]);
+    invalidateEntityCache(entity, { ...record, ...nextData });
+    res.json(record);
   } catch (error) {
     res.status(error.status || 500).json({ message: error.message });
   }
@@ -1284,6 +1399,11 @@ app.patch('/api/entities/:entity/:id', requireAuth, async (req, res) => {
       action: 'update',
       payload: normalizeUploadUrlsInData(req.body),
     });
+    if (entity === 'Order') {
+      const record = await updateOrderWithInventory(req, id, payload);
+      return res.json(record);
+    }
+
     const existing = await pool.query('SELECT data FROM entities WHERE entity = $1 AND id = $2', [entity, id]);
     if (!existing.rowCount) {
       return res.status(404).json({ message: 'Record not found' });
@@ -1321,6 +1441,7 @@ app.delete('/api/entities/:entity/:id', requireAuth, async (req, res) => {
     const removedUploadUrls = extractUploadUrls(result.rows[0].data);
     await pool.query('DELETE FROM entities WHERE entity = $1 AND id = $2', [entity, id]);
     await deleteUploadFilesIfUnused(removedUploadUrls);
+    invalidateEntityCache(entity, { id, ...result.rows[0].data });
     res.json({ success: true });
   } catch (error) {
     res.status(error.status || 500).json({ message: error.message });

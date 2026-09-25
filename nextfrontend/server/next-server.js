@@ -18,6 +18,7 @@ try {
   console.error("Marketplace API is unavailable. Check PostgreSQL credentials in .env.local.", error.message);
 }
 
+server.all("/api/revalidate", (request, response) => handle(request, response));
 if (apiApp) server.use(apiApp);
 if (!apiApp) {
   server.use("/api", (_request, response) => {

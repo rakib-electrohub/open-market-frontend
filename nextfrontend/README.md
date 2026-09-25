@@ -1,6 +1,6 @@
 # Open Market Next.js
 
-This is the isolated Next.js App Router migration for Open Market. The original Vite app remains in the sibling `frontend` folder and is not modified by this project.
+This is the production Open Market Next.js project. The sibling `frontend` folder is the frozen legacy Vite source and is not used by the Next.js runtime.
 
 ## Run
 
@@ -9,24 +9,36 @@ npm install
 npm run dev
 ```
 
-The combined Next.js and marketplace server runs on `http://localhost:3000`. It initializes PostgreSQL, serves the existing `/api` contract, and hands storefront routes to Next.js. Use `npm run dev:next` only when you want the Next UI without the API process.
+The combined Next.js and marketplace server runs on `http://localhost:3000`. It initializes PostgreSQL, serves the `/api` contract, and hands storefront routes to Next.js. The application should be run from `nextfrontend`; the old Vite project is no longer part of the deployment.
 
 Optional environment variables:
 
 ```env
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 API_URL=http://localhost:4000
+REVALIDATE_SECRET=use-a-private-value-in-production
 ```
 
-## Migration structure
+## Architecture
 
-- `src/app/(store)` contains public storefront routes and the shared store layout.
-- `src/app/(auth)` contains login and registration routes.
-- `src/app/product/[id]` and `src/app/store/[sellerId]` are dynamic, server-rendered SEO routes.
-- `src/app/admin`, `src/app/seller`, and `src/app/staff` contain dashboard routes.
-- `src/lib/api.js` forwards the incoming session cookie to the existing API.
-- `src/lib/auth.js` provides server-side session and role guards.
-- `src/app/sitemap.js` and `src/app/robots.js` generate SEO files automatically.
-- `server/` contains the colocated database, authentication, uploads, email, and API server used by `npm run dev`.
+- `src/app/(store)` contains public storefront routes and shared layouts.
+- `src/app/page.js` server-renders the homepage product sections with the configured product limit.
+- `src/app/(store)/products/page.js` server-renders 30-product pagination pages. Infinite scroll is a client enhancement and does not change the URL.
+- `src/app/(store)/product/[id]/page.js` server-renders product detail, metadata, JSON-LD, and initial reviews.
+- `src/app/admin` is client-only, `noindex`, and protected by server-side API authorization.
+- `src/server/catalog.js` owns cached public catalog reads with a 60-minute fallback.
+- `src/app/api/revalidate/route.js` applies cache tags and paths after mutations.
+- `server/` owns PostgreSQL, sessions, authentication, uploads, email, inventory/order APIs, and cache invalidation notifications.
 
-The original UI is copied into `src/legacy-pages` and rendered through the Next App Router with the existing shared components and API contract. Browser-only features remain inside the client compatibility boundary and can be converted to smaller client components incrementally.
+## Rendering Strategy
+
+- **Server-rendered and SEO-visible:** home, products, product details, seller stores, policies, FAQ, contact, and flash sales.
+- **Client interactions:** cart, wishlist, checkout controls, search/filter controls, chat, forms, and reviews.
+- **Client-only dashboards:** admin, seller, and staff interfaces. Their APIs remain server-authorized and dashboard routes are excluded from indexing.
+- **Caching:** public catalog/settings/review data uses tagged caches with a 60-minute fallback. Product, review, category, banner, and settings mutations invalidate affected tags and paths through `/api/revalidate`.
+
+## Orders and Inventory
+
+Order placement must reserve stock transactionally. The order API locks product rows, verifies available quantities, decrements inventory, and records the stock change on the order. A transition into `cancelled` or `refunded` restores the reserved quantity exactly once. Repeated status updates cannot double-decrement or double-restore stock.
+
+The original visual UI is preserved in the copied compatibility components under `src/legacy-pages` and `src/components`; the runtime and deployment target is only `nextfrontend`.

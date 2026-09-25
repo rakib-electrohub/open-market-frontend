@@ -22,10 +22,11 @@ const mergeUniqueProducts = (...lists) => {
   });
 };
 
-export default function Home() {
-  const [products, setProducts] = useState([]);
-  const [flashProducts, setFlashProducts] = useState([]);
-  const [banners, setBanners] = useState([]);
+export default function Home({ initialData }) {
+  const hasInitialData = Boolean(initialData);
+  const [products, setProducts] = useState(() => mergeUniqueProducts(initialData?.featured, initialData?.newest, initialData?.trending));
+  const [flashProducts, setFlashProducts] = useState(() => mergeUniqueProducts(initialData?.flashProducts));
+  const [banners, setBanners] = useState(() => initialData?.banners || []);
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState("");
   const [cart, setCart] = useState(() => {
@@ -37,6 +38,11 @@ export default function Home() {
   const homeProductLimit = Math.min(20, Math.max(1, Number(settings.home_products_limit) || 10));
 
   useEffect(() => {
+    if (hasInitialData) {
+      setLoading(false);
+      return undefined;
+    }
+
     Promise.all([
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved", is_featured: true }, "-created_date", homeProductLimit),
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-created_date", homeProductLimit),
@@ -59,7 +65,7 @@ export default function Home() {
       setWishlist(wish);
       setLoading(false);
     });
-  }, [homeProductLimit]);
+  }, [hasInitialData, homeProductLimit]);
 
   const handleAddToCart = (product) => {
     const existing = cart.find(c => c.product_id === product.id);

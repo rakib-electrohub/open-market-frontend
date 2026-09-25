@@ -1,2 +1,2 @@
-import LegacyPage from "@/components/LegacyPage";
-export default function Page() { return <LegacyPage page="AdminAnalytics" />; }
+import AdminClientPage from "@/components/AdminClientPage";
+export default function Page() { return <AdminClientPage page="AdminAnalytics" />; }
