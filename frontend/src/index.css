@@ -1,0 +1,256 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Poppins:wght@400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 97%;
+    --foreground: 220 15% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 15% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 15% 10%;
+    --primary: 4 86% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 100% 52%;
+    --secondary-foreground: 220 15% 10%;
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 50%;
+    --accent: 35 100% 52%;
+    --accent-foreground: 220 15% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 4 86% 54%;
+    --radius: 0.5rem;
+    --brand-red: 4 86% 54%;
+    --brand-orange: 25 95% 53%;
+    --brand-yellow: 45 100% 52%;
+    --sidebar-background: 220 25% 12%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 4 86% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 20%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 220 20% 20%;
+    --sidebar-ring: 4 86% 54%;
+  }
+
+  .dark {
+    --background: 220 20% 8%;
+    --foreground: 0 0% 95%;
+    --card: 220 18% 12%;
+    --card-foreground: 0 0% 95%;
+    --popover: 220 18% 12%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 4 86% 54%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 100% 52%;
+    --secondary-foreground: 220 15% 10%;
+    --muted: 220 15% 18%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 35 100% 52%;
+    --accent-foreground: 220 15% 10%;
+    --destructive: 0 62% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 15% 22%;
+    --input: 220 15% 22%;
+    --ring: 4 86% 54%;
+    --sidebar-background: 220 25% 8%;
+    --sidebar-foreground: 0 0% 88%;
+    --sidebar-primary: 4 86% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 15%;
+    --sidebar-accent-foreground: 0 0% 88%;
+    --sidebar-border: 220 20% 15%;
+    --sidebar-ring: 4 86% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-inter;
+  }
+}
+
+/* Rich text editor dark-mode usability */
+.rich-text-editor .ql-toolbar.ql-snow,
+.rich-text-editor .ql-container.ql-snow {
+  border-color: hsl(var(--border)) !important;
+}
+
+.rich-text-editor .ql-toolbar.ql-snow {
+  background: hsl(var(--card));
+}
+
+.rich-text-editor .ql-container.ql-snow,
+.rich-text-editor .ql-editor {
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.rich-text-editor .ql-editor {
+  min-height: inherit;
+}
+
+.rich-text-editor .ql-editor.ql-blank::before {
+  color: hsl(var(--muted-foreground)) !important;
+  font-style: normal;
+}
+
+.rich-text-editor .ql-snow .ql-stroke,
+.rich-text-editor .ql-snow .ql-fill {
+  stroke: hsl(var(--muted-foreground));
+  fill: hsl(var(--muted-foreground));
+}
+
+.rich-text-editor .ql-snow .ql-picker-label,
+.rich-text-editor .ql-snow .ql-picker-item,
+.rich-text-editor .ql-snow .ql-tooltip {
+  color: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-snow .ql-tooltip {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
+
+.rich-text-editor .ql-snow .ql-tooltip input {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+
+.font-poppins { font-family: var(--font-poppins); }
+.font-inter { font-family: var(--font-inter); }
+
+@layer components {
+  .rich-text-content {
+    @apply text-foreground leading-7;
+  }
+
+  .rich-text-content > :first-child {
+    margin-top: 0;
+  }
+
+  .rich-text-content > :last-child {
+    margin-bottom: 0;
+  }
+
+  .rich-text-content p,
+  .rich-text-content ul,
+  .rich-text-content ol,
+  .rich-text-content blockquote,
+  .rich-text-content pre,
+  .rich-text-content figure,
+  .rich-text-content table {
+    margin: 0 0 1rem;
+  }
+
+  .rich-text-content h1,
+  .rich-text-content h2,
+  .rich-text-content h3,
+  .rich-text-content h4,
+  .rich-text-content h5,
+  .rich-text-content h6 {
+    margin: 0 0 0.75rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: hsl(var(--foreground));
+  }
+
+  .rich-text-content h1 { font-size: 2rem; }
+  .rich-text-content h2 { font-size: 1.5rem; }
+  .rich-text-content h3 { font-size: 1.25rem; }
+  .rich-text-content h4 { font-size: 1.125rem; }
+  .rich-text-content h5 { font-size: 1rem; }
+  .rich-text-content h6 { font-size: 0.875rem; }
+
+  .rich-text-content ul,
+  .rich-text-content ol {
+    padding-left: 1.5rem;
+  }
+
+  .rich-text-content li {
+    margin-bottom: 0.35rem;
+  }
+
+  .rich-text-content a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+  }
+
+  .rich-text-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: calc(var(--radius) * 0.75);
+    margin: 0.75rem 0;
+  }
+
+  .rich-text-content blockquote {
+    border-left: 3px solid hsl(var(--border));
+    padding-left: 0.875rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .rich-text-content code,
+  .rich-text-content pre {
+    font-family: monospace;
+    background: hsl(var(--muted));
+    border-radius: calc(var(--radius) - 2px);
+  }
+
+  .rich-text-content pre {
+    padding: 0.875rem;
+    overflow-x: auto;
+  }
+
+  .rich-text-content code {
+    padding: 0.15rem 0.35rem;
+  }
+
+  .rich-text-content table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .rich-text-content th,
+  .rich-text-content td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.6rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .rich-text-content .ql-align-center { text-align: center; }
+  .rich-text-content .ql-align-right { text-align: right; }
+  .rich-text-content .ql-align-justify { text-align: justify; }
+  .rich-text-content .ql-direction-rtl { direction: rtl; }
+  .rich-text-content .ql-size-small { font-size: 0.75em; }
+  .rich-text-content .ql-size-large { font-size: 1.5em; }
+  .rich-text-content .ql-size-huge { font-size: 2em; }
+}
+
+/* Flash sale shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.15) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Countdown pulse */
+@keyframes countdown-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+.countdown-pulse { animation: countdown-pulse 1s ease-in-out infinite; }

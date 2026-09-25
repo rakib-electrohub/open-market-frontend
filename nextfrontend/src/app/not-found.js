@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function NotFound() { return <main className="content"><p className="eyebrow">404</p><h1>Page not found.</h1><p className="lede">That Open Market address does not exist.</p><Link className="primary-link" href="/">Return home</Link></main>; }
