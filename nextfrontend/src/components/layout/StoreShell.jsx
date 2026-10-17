@@ -8,6 +8,8 @@ import { PersistentToastProvider } from "@/components/ui/PersistentToast";
 import { Toaster } from "@/components/ui/toaster";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import StoreContactButton from "@/components/layout/StoreContactButton";
+import StoreSideLinks from "@/components/layout/StoreSideLinks";
 import { StoreChromeContext } from "@/components/layout/StoreChromeContext";
 
 const readCart = () => {
@@ -43,6 +45,8 @@ export default function StoreShell({ children }) {
             <Navbar persistent cart={cart} wishlistCount={wishlistCount} />
             {children}
             <Footer persistent />
+            <StoreSideLinks />
+            <StoreContactButton />
             <Toaster />
           </StoreChromeContext.Provider>
         </PersistentToastProvider>

@@ -69,7 +69,7 @@ function FooterContent() {
           <div>
             <h3 className="font-poppins font-semibold text-white mb-4">Customer Service</h3>
             <ul className="space-y-2 text-sm">
-              {[["Return Policy", "/policy/return"], ["Privacy Policy", "/policy/privacy"], ["Terms & Conditions", "/policy/terms"], ["Shipping Info", "/policy/shipping"], ["FAQs", "/faq"], ["Become a Seller", "/seller/register"]].map(([label, href]) => (
+              {[["Customer Reviews", "/customer-reviews"], ["Return Policy", "/policy/return"], ["Privacy Policy", "/policy/privacy"], ["Terms & Conditions", "/policy/terms"], ["Shipping Info", "/policy/shipping"], ["FAQs", "/faq"], ["Become a Seller", "/seller/register"]].map(([label, href]) => (
                 <li key={label}><Link to={href} className="hover:text-primary transition-colors">{label}</Link></li>
               ))}
             </ul>

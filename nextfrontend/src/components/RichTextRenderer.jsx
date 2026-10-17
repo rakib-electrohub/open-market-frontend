@@ -22,7 +22,7 @@ const sanitizeRichText = (input) => {
       'ul', 'ol', 'li', 'a', 'img', 'blockquote', 'figure', 'figcaption', 'code', 'pre', 'hr',
       'table', 'tbody', 'thead', 'tr', 'td', 'th', 'mark', 'sub', 'sup'
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'style', 'class'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'style', 'class', 'data-list'],
     ALLOW_UNKNOWN_PROTOCOLS: false,
     ADD_ATTR: ['target'],
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],

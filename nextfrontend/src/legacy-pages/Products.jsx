@@ -15,14 +15,7 @@ import { SlidersHorizontal, X, Loader2 } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { buildWishlistItem } from "@/utils/wishlist";
 import { getCategoriesFromSettings, getMainCategories, getSubCategories, slugifyCategory } from "@/utils/categories";
-
-const SORT_OPTIONS = [
-  { value: "popularity", label: "Popularity" },
-  { value: "newest", label: "Newest First" },
-  { value: "price_asc", label: "Price: Low to High" },
-  { value: "price_desc", label: "Price: High to Low" },
-  { value: "rating", label: "Top Rated" },
-];
+import { getProductSortOrder, PRODUCT_SORT_OPTIONS } from "@/utils/productSorting";
 const PRODUCTS_PAGE_SIZE = 30;
 
 const mergeUniqueProducts = (...lists) => {
@@ -56,7 +49,7 @@ export default function Products({ initialData }) {
   const maxPriceFilter = parseInt(settings.max_price_filter, 10) || 50000;
   const priceFilterDefaultEnabled = settings.price_filter_enabled === "true";
 
-  const [sort, setSort] = useState("popularity");
+  const [sort, setSort] = useState(() => initialData?.sort || "popularity");
   const [selectedMainCategory, setSelectedMainCategory] = useState(initialData?.category || "");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
   const [categoryOptions, setCategoryOptions] = useState(() => initialData?.categories || []);
@@ -121,6 +114,8 @@ export default function Products({ initialData }) {
     loading,
     offset: (currentPage - 1) * PRODUCTS_PAGE_SIZE + products.length,
     query: getRouteFilterQuery(routeMainCategory, routeSubCategory),
+    order: getProductSortOrder(sort),
+    searchTerm: searchQuery,
     routeKey: `${location.pathname}${location.search}`,
   };
 
@@ -134,9 +129,10 @@ export default function Products({ initialData }) {
     try {
       const nextProducts = await apiClient.entities.Product.filter(
         listing.query,
-        "-sold_count",
+        listing.order,
         PRODUCTS_PAGE_SIZE,
-        listing.offset
+        listing.offset,
+        { searchTerm: listing.searchTerm }
       );
       if (listingStateRef.current?.routeKey !== requestedRoute) return;
       setProducts(previous => mergeUniqueProducts(previous, nextProducts));
@@ -159,6 +155,7 @@ export default function Products({ initialData }) {
     if (Array.isArray(initialData?.products)) {
       setProducts(mergeUniqueProducts(initialData.products));
       setCategoryOptions(initialData.categories || []);
+      setSort(initialData.sort || "popularity");
       setHasMore(initialData.hasMore ?? initialData.products.length === PRODUCTS_PAGE_SIZE);
       setLoading(false);
       apiClient.auth.me().then((user) => {
@@ -176,7 +173,13 @@ export default function Products({ initialData }) {
 
     setLoading(true);
     Promise.all([
-      apiClient.entities.Product.filter(query, "-sold_count", PRODUCTS_PAGE_SIZE, (currentPage - 1) * PRODUCTS_PAGE_SIZE),
+      apiClient.entities.Product.filter(
+        query,
+        getProductSortOrder(sort),
+        PRODUCTS_PAGE_SIZE,
+        (currentPage - 1) * PRODUCTS_PAGE_SIZE,
+        { searchTerm: searchQuery }
+      ),
       apiClient.entities.Category.list("-created_date", 200),
       apiClient.auth.me().then((u) => {
         setUserEmail(u.email);
@@ -197,7 +200,7 @@ export default function Products({ initialData }) {
     return () => {
       isActive = false;
     };
-  }, [location.pathname, location.search, initialData]);
+  }, [location.pathname, location.search, initialData, searchQuery, sort]);
 
   useEffect(() => {
     const enableLoading = () => setHasUserScrolled(true);
@@ -226,7 +229,15 @@ export default function Products({ initialData }) {
 
   useEffect(() => {
     let result = [...products];
-    if (searchQuery) result = result.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.description?.toLowerCase().includes(searchQuery.toLowerCase()));
+    if (searchQuery) {
+      const term = searchQuery.toLowerCase();
+      result = result.filter(p => (
+        String(p.name || "").toLowerCase().includes(term)
+        || String(p.brand || "").toLowerCase().includes(term)
+        || String(p.short_description || "").toLowerCase().includes(term)
+        || String(p.description || "").toLowerCase().includes(term)
+      ));
+    }
     if (selectedBrands.length) result = result.filter(p => selectedBrands.includes(p.brand));
     if (inStockOnly) result = result.filter(p => (p.stock || 0) > 0);
     if (selectedMainCategory) {
@@ -242,12 +253,6 @@ export default function Products({ initialData }) {
     if (flashOnly) result = result.filter(p => p.flash_sale_price && p.flash_sale_end && new Date(p.flash_sale_end) > new Date());
     if (priceFilterEnabled) result = result.filter(p => p.price >= priceRange[0] && p.price <= priceRange[1]);
     if (minRating > 0) result = result.filter(p => (p.average_rating || 0) >= minRating);
-
-    if (sort === "newest") result.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
-    else if (sort === "price_asc") result.sort((a, b) => a.price - b.price);
-    else if (sort === "price_desc") result.sort((a, b) => b.price - a.price);
-    else if (sort === "rating") result.sort((a, b) => (b.average_rating || 0) - (a.average_rating || 0));
-    else result.sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0));
 
     setFiltered(result);
   }, [products, searchQuery, selectedMainCategory, selectedSubCategory, flashOnly, priceFilterEnabled, priceRange, minRating, sort, selectedBrands, inStockOnly]);
@@ -296,6 +301,15 @@ export default function Products({ initialData }) {
     navigate(nextPath);
   };
 
+  const handleSortChange = (nextSort) => {
+    const params = new URLSearchParams(location.search);
+    params.delete("page");
+    if (nextSort === "popularity") params.delete("sort");
+    else params.set("sort", nextSort);
+    const query = params.toString();
+    navigate(`${location.pathname}${query ? `?${query}` : ""}`);
+  };
+
   const handleMainCategoryChange = (value) => {
     setSelectedMainCategory(value);
     setSelectedSubCategory("");
@@ -335,6 +349,9 @@ export default function Products({ initialData }) {
   const mainCategories = getMainCategories(categoryOptions.length ? categoryOptions : categories.map((name) => ({ id: name, name, parent_id: null })));
   const subCategories = selectedMainCategory ? getSubCategories(categoryOptions, mainCategories.find((cat) => cat.name === selectedMainCategory)?.id) : [];
   const currentCategoryLabel = selectedSubCategory || selectedMainCategory || (categoryParam || mainCategoryParam || "");
+  const canonicalPath = routeMainCategory
+    ? `/products/${encodeURIComponent(slugifyCategory(routeMainCategory))}`
+    : "/products";
   const categorySeo = getCategorySeoData(currentCategoryLabel || "Products", filtered.length);
   const safeOrigin = typeof window !== "undefined"
     ? window.location.origin
@@ -344,8 +361,7 @@ export default function Products({ initialData }) {
     buildCollectionPageSchema({
       name: currentCategoryLabel || "Open Market Products",
       description: categorySeo.description,
-      url: `${safeOrigin}${location.pathname}${location.search || ""}`,
-      itemCount: filtered.length,
+      url: `${safeOrigin}${canonicalPath}`,
     }),
   ];
   const sidebarContent = (
@@ -378,7 +394,7 @@ export default function Products({ initialData }) {
       </div>
 
       {/* Price Range */}
-      <div className={`rounded-xl p-4 transition-colors ${priceFilterEnabled ? "bg-background border border-border" : "bg-slate-950 border border-border/40"}`}>
+      <div className={`rounded-xl border p-4 transition-colors ${priceFilterEnabled ? "bg-background border-border" : "bg-muted/50 border-border"}`}>
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="font-semibold text-sm">Price Range</h3>
@@ -397,8 +413,9 @@ export default function Products({ initialData }) {
               value={priceRange[0]}
               min={0}
               max={priceRange[1]}
+              disabled={!priceFilterEnabled}
               onChange={(e) => setPriceRange(normalizePriceRange([e.target.value, priceRange[1]]))}
-              className="mt-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="mt-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
             />
           </label>
           <label className="flex flex-col text-sm text-muted-foreground">
@@ -408,8 +425,9 @@ export default function Products({ initialData }) {
               value={priceRange[1]}
               min={priceRange[0]}
               max={maxPriceFilter}
+              disabled={!priceFilterEnabled}
               onChange={(e) => setPriceRange(normalizePriceRange([priceRange[0], e.target.value]))}
-              className="mt-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="mt-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
             />
           </label>
         </div>
@@ -418,7 +436,7 @@ export default function Products({ initialData }) {
           <span>৳{priceRange[0].toLocaleString()}</span>
           <span>৳{priceRange[1].toLocaleString()}</span>
         </div>
-        {!priceFilterEnabled && <p className="mt-2 text-xs text-muted-foreground">Price range is currently disabled. Enable to apply.</p>}
+        {!priceFilterEnabled && <p className="mt-2 text-xs text-muted-foreground">Price range is disabled. Enable it to apply these limits.</p>}
       </div>
 
       {/* Rating */}
@@ -469,7 +487,7 @@ export default function Products({ initialData }) {
       <SEO
         title={searchQuery ? `Search results for ${searchQuery} | Open Market` : currentCategoryLabel ? `${currentCategoryLabel} | Open Market` : "Products | Open Market"}
         description={searchQuery ? `Search results for ${searchQuery} on Open Market. Discover trusted products and deals from verified sellers.` : categorySeo.description}
-        canonicalPath={location.pathname + (location.search || "")}
+        canonicalPath={canonicalPath}
         structuredData={structuredData}
         image={filtered[0]?.images?.[0] || "/og-default.svg"}
       />
@@ -497,8 +515,8 @@ export default function Products({ initialData }) {
               </button>
               <div className="flex min-w-0 items-center gap-2 border border-border rounded-lg px-2 py-1.5 lg:px-3 lg:py-2">
                 <span className="text-xs text-muted-foreground">Sort:</span>
-                <select value={sort} onChange={e => setSort(e.target.value)} className="min-w-0 text-sm bg-transparent focus:outline-none">
-                  {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                <select value={sort} onChange={e => handleSortChange(e.target.value)} className="min-w-0 text-sm bg-transparent focus:outline-none">
+                  {PRODUCT_SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
             </div>

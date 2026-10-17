@@ -1,5 +1,7 @@
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
+import { initializeDatabase } from "../../server/database-pool.js";
+import { getPublicReviewsPage as queryPublicReviewsPage } from "../../server/public-reviews.js";
 
 const internalApiUrl = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 const cacheSeconds = 60 * 60;
@@ -18,10 +20,10 @@ async function readApi(path, options = {}, tags = []) {
   }
 }
 
-async function filterProducts(query, order, limit, offset = 0) {
+async function filterProducts(query, order, limit, offset = 0, searchTerm = "") {
   return (await readApi(
     "/entities/Product/filter",
-    { method: "POST", body: JSON.stringify({ query, order, limit, offset }) },
+    { method: "POST", body: JSON.stringify({ query, order, limit, offset, searchTerm }) },
     ["products"]
   )) || [];
 }
@@ -70,6 +72,11 @@ export const getCategories = cache(async () => (
   await readApi("/entities/Category/list?order=-created_date&limit=200", {}, ["categories"])
 ) || []);
 
+export async function getPublicReviewsPage({ limit = 10, offset = 0 } = {}) {
+  await initializeDatabase();
+  return queryPublicReviewsPage({ limit, offset });
+}
+
 const getCachedPublicSitemapCounts = unstable_cache(async () => {
   const counts = await readApi("/public-sitemap/counts");
   if (!counts || !Number.isFinite(Number(counts.products)) || !Number.isFinite(Number(counts.sellers))) {
@@ -91,10 +98,10 @@ export const getPublicSitemapEntries = cache((entity, offset, limit = 5000) => (
   getCachedPublicSitemapEntries(entity, offset, limit)
 ));
 
-const getCachedProductsPage = unstable_cache(async ({ page = 1, limit = 30, query = {}, order = "-sold_count" } = {}) => {
+const getCachedProductsPage = unstable_cache(async ({ page = 1, limit = 30, query = {}, order = "-sold_count", searchTerm = "", sort = "popularity" } = {}) => {
   const safePage = Math.max(1, Number(page) || 1);
-  const products = await filterProducts(query, order, limit, (safePage - 1) * limit);
-  return { products, page: safePage, limit, hasMore: products.length === limit };
+  const products = await filterProducts(query, order, limit, (safePage - 1) * limit, searchTerm);
+  return { products, page: safePage, limit, hasMore: products.length === limit, sort };
 }, ["products-page"], { revalidate: cacheSeconds, tags: ["products"] });
 
 export const getProductsPage = cache((options = {}) => getCachedProductsPage(options));

@@ -50,6 +50,36 @@ function VideoPlayer({ url }) {
   return <video src={url} controls className="w-full h-full object-contain bg-black" />;
 }
 
+function QuantityStepper({ quantity, onChange, max, compact = false }) {
+  const maxQuantity = Number.isFinite(Number(max)) ? Math.max(0, Number(max)) : 1;
+
+  return (
+    <div className={`flex shrink-0 items-center overflow-hidden rounded-lg border border-border ${compact ? "h-11" : ""}`}>
+      <button
+        type="button"
+        aria-label="Decrease quantity"
+        disabled={quantity <= 1}
+        onClick={() => onChange((current) => Math.max(1, current - 1))}
+        className={`transition-colors hover:bg-muted disabled:opacity-50 ${compact ? "px-1.5" : "px-3 py-2"}`}
+      >
+        <Minus className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+      </button>
+      <span className={`text-center font-semibold ${compact ? "min-w-6 px-1 text-sm" : "min-w-[3rem] px-4 py-2"}`}>
+        {quantity}
+      </span>
+      <button
+        type="button"
+        aria-label="Increase quantity"
+        disabled={quantity >= maxQuantity}
+        onClick={() => onChange((current) => Math.min(maxQuantity, current + 1))}
+        className={`transition-colors hover:bg-muted disabled:opacity-50 ${compact ? "px-1.5" : "px-3 py-2"}`}
+      >
+        <Plus className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+      </button>
+    </div>
+  );
+}
+
 export default function ProductDetail({ initialData }) {
   const { id } = useParams();
   const hasInitialData = Boolean(initialData);
@@ -124,27 +154,6 @@ export default function ProductDetail({ initialData }) {
   const productImages = getProductImageUrls(product);
   const productDescription = product.short_description || product.description || `Buy ${product.name} from Open Market BD.`;
   const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
-  const productStructuredData = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: product.name,
-    description: productDescription.replace(/<[^>]+>/g, " ").trim(),
-    image: productImages,
-    sku: product.sku || product.id,
-    brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
-    category: product.main_category || product.category || "General",
-    offers: {
-      "@type": "Offer",
-      url: `${typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")}/product/${product.id}`,
-      priceCurrency: "BDT",
-      price: String(price),
-      availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-      itemCondition: "https://schema.org/NewCondition",
-    },
-    ...(product.seller_id ? { seller: { "@type": "Store", name: product.seller_name || "Open Market Seller" } } : {}),
-    ...(avgRating > 0 || reviews.length ? { aggregateRating: { "@type": "AggregateRating", ratingValue: Number(avgRating || 0), reviewCount: reviews.length } } : {}),
-  };
-
   const handleAddToCart = () => {
     const existing = cart.find(c => c.product_id === product.id);
     const newCart = existing
@@ -193,10 +202,9 @@ export default function ProductDetail({ initialData }) {
         title={`${product.name} | Open Market BD`}
         description={productDescription.replace(/<[^>]+>/g, " ").trim().slice(0, 160)}
         canonicalPath={`/product/${product.id}`}
-        structuredData={productStructuredData}
       />
       <Navbar cart={cart} wishlistCount={wishlist.length} />
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-6 pb-24 lg:pb-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-6">
           <Link to="/" className="hover:text-primary">Home</Link>
@@ -363,20 +371,16 @@ export default function ProductDetail({ initialData }) {
               )}
 
               {/* Quantity */}
-              <div className="flex items-center gap-4 mb-6">
+              <div className="mb-6 hidden items-center gap-4 lg:flex">
                 <span className="text-sm font-semibold">Quantity:</span>
-                <div className="flex items-center border border-border rounded-lg overflow-hidden">
-                  <button onClick={() => setQuantity(q => Math.max(1, q - 1))} className="px-3 py-2 hover:bg-muted transition-colors"><Minus className="w-4 h-4" /></button>
-                  <span className="px-4 py-2 font-semibold min-w-[3rem] text-center">{quantity}</span>
-                  <button onClick={() => setQuantity(q => Math.max(1, Math.min(product.stock, q + 1)))} className="px-3 py-2 hover:bg-muted transition-colors"><Plus className="w-4 h-4" /></button>
-                </div>
+                <QuantityStepper quantity={quantity} onChange={setQuantity} max={product.stock} />
                 <span className={`text-sm font-medium ${product.stock === 0 ? "text-red-500" : product.stock <= 5 ? "text-orange-500" : "text-green-600"}`}>
                   {product.stock > 0 ? `${product.stock} in stock` : "Out of stock"}
                 </span>
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 mb-6 flex-wrap items-center">
+              <div className="mb-6 hidden flex-wrap items-center gap-3 lg:flex">
                 <Button onClick={handleAddToCart} disabled={product.stock === 0} className="flex-1 bg-primary hover:bg-primary/90 h-12 text-base font-semibold">
                   <ShoppingCart className="w-5 h-5 mr-2" /> Add to Cart
                 </Button>
@@ -440,7 +444,8 @@ export default function ProductDetail({ initialData }) {
           {/* Short Description */}
           {product.short_description && (
             <div className="mt-6 pt-5 border-t border-border">
-              <RichTextRenderer content={product.short_description} className="text-foreground text-sm leading-relaxed" />
+              <h2 className="mb-3 font-poppins text-lg font-bold">Short Description</h2>
+              <RichTextRenderer content={product.short_description} className="text-sm text-muted-foreground rich-text-content" />
             </div>
           )}
 
@@ -485,6 +490,40 @@ export default function ProductDetail({ initialData }) {
           </div>
         </div>
       </main>
+      <div
+        role="region"
+        aria-label="Product purchase controls"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-white/95 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden"
+      >
+        <div className="mx-auto flex max-w-7xl items-center gap-1.5">
+          <QuantityStepper quantity={quantity} onChange={setQuantity} max={product.stock} compact />
+          <Button
+            onClick={handleAddToCart}
+            disabled={product.stock === 0}
+            title="Add to Cart"
+            className="h-11 min-w-0 flex-1 gap-1 bg-primary px-2 text-xs font-semibold hover:bg-primary/90 min-[380px]:text-sm"
+          >
+            <ShoppingCart className="h-4 w-4 shrink-0" />
+            <span>Add<span className="hidden min-[380px]:inline"> to Cart</span></span>
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleBuyNow}
+            disabled={product.stock === 0}
+            className="h-11 shrink-0 px-2.5 text-xs"
+          >
+            Buy
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleWishlist}
+            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+            className={`h-11 w-11 shrink-0 px-0 ${isWishlisted ? "border-primary text-primary" : ""}`}
+          >
+            <Heart className={`h-5 w-5 ${isWishlisted ? "fill-primary text-primary" : ""}`} />
+          </Button>
+        </div>
+      </div>
       <Footer />
     </div>
   );

@@ -67,9 +67,9 @@ const createEntityClient = (entity) => ({
       method: 'GET',
     });
   },
-  filter: (query = {}, order, limit, offset) => apiFetch(`/entities/${entity}/filter`, {
+  filter: (query = {}, order, limit, offset, options = {}) => apiFetch(`/entities/${entity}/filter`, {
     method: 'POST',
-    body: { query, order, limit, offset },
+    body: { query, order, limit, offset, ...options },
   }),
   get: (id) => apiFetch(`/entities/${entity}/${id}`, {
     method: 'GET',
@@ -148,6 +148,15 @@ const wishlist = {
   }),
 };
 
+const publicReviews = {
+  list: (params = {}) => {
+    const query = buildQueryString(params);
+    return apiFetch(`/public/reviews${query ? `?${query}` : ''}`, {
+      method: 'GET',
+    });
+  },
+};
+
 const integrations = {
   Core: {
     UploadFile: async ({ file }) => {
@@ -188,4 +197,5 @@ export const apiClient = {
   functions,
   integrations,
   wishlist,
+  publicReviews,
 };

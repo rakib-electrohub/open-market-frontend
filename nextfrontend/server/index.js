@@ -9,7 +9,8 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
-import { createAppPool, initDatabase as initAppDatabase, installAutoDatabaseRepair } from './database.js';
+import { initializeDatabase, pool } from './database-pool.js';
+import { getPublicReviewsPage } from './public-reviews.js';
 import { parseOrder } from './security-utils.js';
 import { invalidateEntityCache } from '../src/server/cache.js';
 
@@ -47,8 +48,6 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
-
-const pool = installAutoDatabaseRepair(createAppPool());
 
 const app = express();
 app.use(cors({origin: ['http://localhost:5173','http://127.0.0.1:5173',FRONTEND_URL],credentials: true}));
@@ -1249,6 +1248,17 @@ app.post('/api/admin/invite', async (req, res) => {
   }
 });
 
+app.get('/api/public/reviews', async (req, res) => {
+  try {
+    const limit = req.query.limit === undefined ? 10 : Number(req.query.limit);
+    const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
+    const rating = req.query.rating === undefined ? null : req.query.rating;
+    res.json(await getPublicReviewsPage({ limit, offset, rating }));
+  } catch (error) {
+    res.status(error.status || 500).json({ message: error.message });
+  }
+});
+
 app.get('/api/public-sitemap/counts', async (_req, res) => {
   try {
     const result = await pool.query(`
@@ -1303,7 +1313,7 @@ app.post('/api/entities/:entity/filter', async (req, res) => {
   try {
     const entity = req.params.entity;
     assertEntityName(entity);
-    const { query = {}, order, limit, offset } = req.body;
+    const { query = {}, order, limit, offset, searchTerm } = req.body;
     const buildFilterClauses = (filterObj, startIndex = 2) => {
       const conditions = [];
       const values = [];
@@ -1371,12 +1381,34 @@ app.post('/api/entities/:entity/filter', async (req, res) => {
     const conditions = ['entity = $1'];
     const values = [entity, ...filterBuild.values];
     conditions.push(...filterBuild.conditions);
-    const orderClause = parseOrder(order);
+    const normalizedSearch = typeof searchTerm === 'string' ? searchTerm.trim().slice(0, 200).toLocaleLowerCase() : '';
+    if (entity === 'Product' && normalizedSearch) {
+      const searchIndex = values.length + 1;
+      values.push(normalizedSearch);
+      conditions.push(`(
+        POSITION($${searchIndex} IN LOWER(COALESCE(data->>'name', ''))) > 0
+        OR POSITION($${searchIndex} IN LOWER(COALESCE(data->>'brand', ''))) > 0
+        OR POSITION($${searchIndex} IN LOWER(COALESCE(data->>'short_description', ''))) > 0
+        OR POSITION($${searchIndex} IN LOWER(COALESCE(data->>'description', ''))) > 0
+      )`);
+    }
+    const orderClause = entity === 'Product' && order === 'relevance'
+      ? normalizedSearch
+        ? `CASE
+            WHEN LOWER(COALESCE(data->>'name', '')) = $${values.length} THEN 0
+            WHEN LEFT(LOWER(COALESCE(data->>'name', '')), LENGTH($${values.length})) = $${values.length} THEN 1
+            WHEN POSITION($${values.length} IN LOWER(COALESCE(data->>'name', ''))) > 0 THEN 2
+            WHEN POSITION($${values.length} IN LOWER(COALESCE(data->>'brand', ''))) > 0 THEN 3
+            ELSE 4
+          END ASC, COALESCE(NULLIF(data->>'sold_count', '')::numeric, 0) DESC`
+        : `COALESCE(NULLIF(data->>'sold_count', '')::numeric, 0) DESC`
+      : parseOrder(order);
     const parsedLimit = Number(limit);
     const parsedOffset = Number(offset);
     const limitClause = Number.isInteger(parsedLimit) && parsedLimit > 0 ? `LIMIT ${Math.min(parsedLimit, 100)}` : '';
     const offsetClause = Number.isInteger(parsedOffset) && parsedOffset > 0 ? `OFFSET ${parsedOffset}` : '';
-    const result = await pool.query(`SELECT id, data, created_date FROM entities WHERE ${conditions.join(' AND ')} ORDER BY ${orderClause} ${limitClause} ${offsetClause}`, values);
+    const stableOrderClause = entity === 'Product' ? `${orderClause} NULLS LAST, id ASC` : orderClause;
+    const result = await pool.query(`SELECT id, data, created_date FROM entities WHERE ${conditions.join(' AND ')} ORDER BY ${stableOrderClause} ${limitClause} ${offsetClause}`, values);
     const readable = await applyReadableRows(req, entity, result.rows);
     res.json(readable);
   } catch (error) {
@@ -1756,7 +1788,7 @@ app.use((err, req, res, next) => {
 });
 
 export async function startApiServer() {
-  await initAppDatabase(pool);
+  await initializeDatabase();
   return app;
 }
 

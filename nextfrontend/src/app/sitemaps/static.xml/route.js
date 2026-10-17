@@ -7,6 +7,7 @@ const publicRoutes = [
   ["/products", 0.9, "daily"],
   ["/categories", 0.8, "weekly"],
   ["/contact", 0.5, "monthly"],
+  ["/customer-reviews", 0.4, "weekly"],
   ["/flash-sales", 0.7, "daily"],
   ["/faq", 0.5, "monthly"],
   ["/policy/return", 0.3, "yearly"],

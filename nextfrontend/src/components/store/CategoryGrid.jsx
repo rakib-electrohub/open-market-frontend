@@ -23,19 +23,24 @@ const CATEGORY_BATCH_SIZE = 8;
 export default function CategoryGrid({ initialCategories = [] }) {
   const settings = useAppSettings();
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_CATEGORIES);
-  const categories = initialCategories
-    .filter((entry) => entry?.name && !entry?.parent_id)
-    .map((entry, index) => ({
+  const categorySource = initialCategories.some((entry) => entry?.name && !entry?.parent_id)
+    ? initialCategories.filter((entry) => entry?.name && !entry?.parent_id)
+    : getCategoriesFromSettings(settings).map((name) => ({ name }));
+  const seenCategorySlugs = new Set();
+  const allCategories = categorySource.flatMap((entry, index) => {
+    const slug = entry.slug || slugifyCategory(entry.name);
+    const slugKey = String(slug).trim().toLowerCase();
+    if (!slugKey || seenCategorySlugs.has(slugKey)) return [];
+    seenCategorySlugs.add(slugKey);
+
+    return [{
       id: entry.id,
       name: entry.name,
       image: entry.image || entry.image_url,
-      slug: entry.slug,
+      slug,
       ...CATEGORY_STYLES[index % CATEGORY_STYLES.length],
-    }));
-  const allCategories = categories.length ? categories : getCategoriesFromSettings(settings).map((name, index) => ({
-    name,
-    ...CATEGORY_STYLES[index % CATEGORY_STYLES.length],
-  }));
+    }];
+  });
   const visibleCategories = allCategories.slice(0, visibleCount);
   const hasMoreCategories = visibleCount < allCategories.length;
 
@@ -51,7 +56,7 @@ export default function CategoryGrid({ initialCategories = [] }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {visibleCategories.map(({ name, icon: Icon, color, border, image, slug }) => (
-          <Link key={name} to={`/products/${encodeURIComponent(slug || slugifyCategory(name))}`}
+          <Link key={slug} to={`/products/${encodeURIComponent(slug)}`}
             className={`flex flex-col items-center gap-2 p-3 bg-white rounded-xl border border-border ${border} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group`}>
             {image ? (
               <div className="w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/30">

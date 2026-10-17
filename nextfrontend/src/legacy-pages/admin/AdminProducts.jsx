@@ -226,7 +226,7 @@ export default function AdminProducts() {
             <div><Label className="text-gray-300">Stock</Label><Input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} className="mt-1 bg-gray-800 border-gray-700 text-white" /></div>
             <div className="sm:col-span-2">
               <Label className="text-gray-300">Short Description</Label>
-              <Input value={form.short_description} onChange={e => setForm({ ...form, short_description: e.target.value })} className="mt-1 bg-gray-800 border-gray-700 text-white" />
+              <RichTextEditor value={form.short_description} onChange={value => setForm({ ...form, short_description: value })} minHeight={140} />
             </div>
             <div className="sm:col-span-2">
               <Label className="text-gray-300">Description</Label>

@@ -11,19 +11,36 @@ import RichTextEditor from "@/components/RichTextEditor";
 import { normalizeImageUrl } from "@/utils/imageUrls";
 import { uploadImageWithSizeCheck } from "@/utils/imageUpload";
 import { buildCategoryTree, parseCategoryList } from "@/utils/categories";
+import { getSafeHttpUrl } from "@/utils/urls";
 
 const DEFAULT_SETTINGS = {
   store_name: "Open Market BD",
   store_tagline: "Bangladesh's Modern Marketplace",
   store_logo: "",
   contact_phone: "+880 1700-000000",
+  contact_hours: "09:00 AM to 10:00 PM",
+  whatsapp_number: "",
+  whatsapp_url: "",
+  imo_number: "",
+  imo_url: "",
+  facebook_messenger_url: "",
   contact_email: "support@openmarketbd.com",
   contact_address: "Dhaka, Bangladesh",
+  iottechbd_url: "https://iottechbd.com",
+  printing_service_url: "",
   facebook_url: "",
   instagram_url: "",
   youtube_url: "",
   website_url: "",
   announcement_text: "🎉 Free delivery on orders above ৳999 | Cash on Delivery Available Nationwide",
+  home_benefit_1_title: "3D Printing Service",
+  home_benefit_1_description: "Custom 3D printing solutions",
+  home_benefit_2_title: "Secure Payment",
+  home_benefit_2_description: "100% protected",
+  home_benefit_3_title: "Easy Returns",
+  home_benefit_3_description: "7-day return policy",
+  home_benefit_4_title: "24/7 Support",
+  home_benefit_4_description: "Dedicated support team",
   return_policy: "We offer a 7-day return policy for all products. Items must be in original condition.",
   privacy_policy: "We respect your privacy. Your personal information is kept secure and never shared.",
   terms_conditions: "By using Open Market BD, you agree to our terms and conditions.",
@@ -222,6 +239,22 @@ export default function AdminSiteSettings() {
   };
   
   const handleSave = async (keys) => {
+    const invalidLink = keys.find((key) =>
+      [
+        "iottechbd_url",
+        "printing_service_url",
+        "whatsapp_url",
+        "imo_url",
+        "facebook_messenger_url",
+      ].includes(key) &&
+      settings[key] &&
+      !getSafeHttpUrl(settings[key])
+    );
+    if (invalidLink) {
+      toast({ title: "Enter a valid website URL starting with http:// or https://", variant: "destructive" });
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -603,8 +636,18 @@ export default function AdminSiteSettings() {
   ];
 
   const TAB_KEYS = {
-    general: ["store_name", "store_tagline", "store_logo", "announcement_text", "home_products_limit"],
-    contact: ["contact_phone", "contact_email", "contact_address", "website_url"],
+    general: [
+      "store_name", "store_tagline", "store_logo", "announcement_text", "home_products_limit",
+      "home_benefit_1_title", "home_benefit_1_description",
+      "home_benefit_2_title", "home_benefit_2_description",
+      "home_benefit_3_title", "home_benefit_3_description",
+      "home_benefit_4_title", "home_benefit_4_description",
+    ],
+    contact: [
+      "contact_phone", "contact_hours", "whatsapp_number", "whatsapp_url",
+      "imo_number", "imo_url", "facebook_messenger_url", "contact_email",
+      "contact_address", "website_url", "iottechbd_url", "printing_service_url",
+    ],
     social: ["facebook_url", "instagram_url", "youtube_url"],
     policies: ["return_policy", "privacy_policy", "terms_conditions", "shipping_info"],
     uploads: ["max_image_size_mb"],
@@ -661,13 +704,41 @@ export default function AdminSiteSettings() {
                   className="bg-gray-800 border-gray-700 text-white"
                 />
               </div>
+              <div className="border-t border-gray-800 pt-4 space-y-4">
+                <div>
+                  <h3 className="text-gray-200 text-sm font-semibold">Homepage Benefit Cards</h3>
+                  <p className="text-gray-500 text-xs mt-1">Edit the title and description shown on each homepage benefit card. The 3D Printing Service card uses the URL configured in Contact settings.</p>
+                </div>
+                {[1, 2, 3, 4].map((index) => (
+                  <div key={index} className="grid gap-3 sm:grid-cols-2">
+                    <Field label={`Benefit ${index} Title`} name={`home_benefit_${index}_title`} placeholder={`Benefit ${index} title`} />
+                    <Field label={`Benefit ${index} Description`} name={`home_benefit_${index}_description`} placeholder={`Benefit ${index} description`} />
+                  </div>
+                ))}
+              </div>
             </>)}
 
             {activeTab === "contact" && (<>
               <Field label="Phone" name="contact_phone" icon={Phone} placeholder="+880 1700-000000" />
+              <Field label="Contact Availability Hours" name="contact_hours" placeholder="09:00 AM to 10:00 PM" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="WhatsApp Number" name="whatsapp_number" type="tel" placeholder="+880 1700-000000" />
+                <Field label="WhatsApp Link (optional)" name="whatsapp_url" icon={Globe} type="url" placeholder="https://wa.me/8801700000000" />
+              </div>
+              <p className="-mt-3 text-xs text-gray-500">If the WhatsApp link is blank, it is generated from the number.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="IMO Number" name="imo_number" type="tel" placeholder="+880 1700-000000" />
+                <Field label="IMO Message Link" name="imo_url" icon={Globe} type="url" placeholder="https://..." />
+              </div>
+              <Field label="Facebook Messenger Link" name="facebook_messenger_url" icon={Facebook} type="url" placeholder="https://m.me/yourpage" />
               <Field label="Email" name="contact_email" icon={Mail} type="email" placeholder="support@store.com" />
               <Field label="Address" name="contact_address" icon={MapPin} placeholder="Dhaka, Bangladesh" />
               <Field label="Website URL" name="website_url" icon={Globe} placeholder="https://openmarketbd.com" />
+              <Field label="IoT-TechBD Website URL" name="iottechbd_url" icon={Globe} type="url" placeholder="https://iottechbd.com" />
+              <div>
+                <Field label="3D Printing Service URL" name="printing_service_url" icon={Globe} type="url" placeholder="https://iottechbd.com/3d-printing" />
+                <p className="mt-1 text-xs text-gray-500">Leave blank to hide the 3D Printing shortcut from the store.</p>
+              </div>
             </>)}
 
             {activeTab === "social" && (<>

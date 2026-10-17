@@ -6,15 +6,18 @@ import { buildWishlistItem } from "@/utils/wishlist";
 
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import StoreContactButton from "@/components/layout/StoreContactButton";
+import StoreSideLinks from "@/components/layout/StoreSideLinks";
 import HeroBanner from "@/components/store/HeroBanner";
 import CategoryGrid from "@/components/store/CategoryGrid";
 import FlashSaleSection from "@/components/store/FlashSaleSection";
 import ProductSection from "@/components/store/ProductSection";
 import SEO from "@/components/SEO";
-import { Shield, Truck, RefreshCcw, Headphones } from "lucide-react";
+import { Shield, Printer, RefreshCcw, Headphones } from "lucide-react";
 import AnimatedSection from "@/components/ui/AnimatedSection";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { buildOrganizationSchema, buildWebsiteSchema } from "@/lib/seo";
+import { getSafeHttpUrl } from "@/utils/urls";
 
 const mergeUniqueProducts = (...lists) => {
   const seen = new Set();
@@ -39,6 +42,7 @@ export default function Home({ initialData }) {
   const notify = usePersistentToast();
   const settings = useAppSettings();
   const homeProductLimit = Math.min(20, Math.max(1, Number(settings.home_products_limit) || 10));
+  const printingServiceUrl = getSafeHttpUrl(settings.printing_service_url);
 
   useEffect(() => {
     if (hasInitialData) {
@@ -187,12 +191,12 @@ export default function Home({ initialData }) {
         <AnimatedSection animation="fade-up">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {[
-              { icon: Truck, label: "Free Delivery", sub: "On orders above ৳999" },
-              { icon: Shield, label: "Secure Payment", sub: "100% protected" },
-              { icon: RefreshCcw, label: "Easy Returns", sub: "7-day return policy" },
-              { icon: Headphones, label: "24/7 Support", sub: "Dedicated support team" },
-            ].map(({ icon: Icon, label, sub }, i) => (
-              <AnimatedSection key={label} animation="scale-up" delay={i * 80}>
+              { icon: Printer, label: settings.home_benefit_1_title ?? "3D Printing Service", sub: settings.home_benefit_1_description ?? "Custom 3D printing solutions", href: printingServiceUrl },
+              { icon: Shield, label: settings.home_benefit_2_title ?? "Secure Payment", sub: settings.home_benefit_2_description ?? "100% protected" },
+              { icon: RefreshCcw, label: settings.home_benefit_3_title ?? "Easy Returns", sub: settings.home_benefit_3_description ?? "7-day return policy" },
+              { icon: Headphones, label: settings.home_benefit_4_title ?? "24/7 Support", sub: settings.home_benefit_4_description ?? "Dedicated support team" },
+            ].map(({ icon: Icon, label, sub, href }, i) => {
+              const content = (
                 <div className="bg-white rounded-xl p-4 flex items-center gap-3 border border-border hover:border-primary/30 transition-colors h-full">
                   <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center flex-shrink-0">
                     <Icon className="w-5 h-5 text-primary" />
@@ -202,8 +206,18 @@ export default function Home({ initialData }) {
                     <div className="text-xs text-muted-foreground">{sub}</div>
                   </div>
                 </div>
-              </AnimatedSection>
-            ))}
+              );
+
+              return (
+                <AnimatedSection key={label} animation="scale-up" delay={i * 80}>
+                  {href ? (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="block h-full">
+                      {content}
+                    </a>
+                  ) : content}
+                </AnimatedSection>
+              );
+            })}
           </div>
         </AnimatedSection>
 
@@ -238,7 +252,8 @@ export default function Home({ initialData }) {
         </AnimatedSection>
       </main>
       <Footer />
+      <StoreSideLinks />
+      <StoreContactButton />
     </div>
   );
 }
-

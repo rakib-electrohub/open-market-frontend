@@ -26,6 +26,7 @@ export function buildPageMetadata({
   description,
   path = "/",
   noindex = false,
+  nofollow,
   openGraphTitle,
   openGraphDescription,
   image = DEFAULT_OG_IMAGE,
@@ -35,13 +36,14 @@ export function buildPageMetadata({
 }) {
   const pageTitle = title || SITE_NAME;
   const pageDescription = description || SITE_DESCRIPTION;
+  const follow = nofollow === undefined ? !noindex : !nofollow;
 
   return {
     title: pageTitle,
     description: pageDescription,
     keywords,
     alternates: { canonical: absoluteUrl(path) },
-    robots: noindex ? { index: false, follow: false } : { index: true, follow: true },
+    robots: { index: !noindex, follow },
     openGraph: {
       type,
       url: absoluteUrl(path),
@@ -126,7 +128,7 @@ export function buildOrganizationSchema() {
   };
 }
 
-export function buildCollectionPageSchema({ name, description, url, itemCount = 0 }) {
+export function buildCollectionPageSchema({ name, description, url, itemCount }) {
   return {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
@@ -135,8 +137,8 @@ export function buildCollectionPageSchema({ name, description, url, itemCount = 
     url,
     mainEntity: {
       "@type": "ItemList",
-      numberOfItems: itemCount,
       name,
+      ...(Number.isFinite(itemCount) ? { numberOfItems: itemCount } : {}),
     },
   };
 }
