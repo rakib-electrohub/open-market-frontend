@@ -22,11 +22,13 @@ const uniqueClean = (items) => {
     });
 };
 
-const slugify = (value) => String(value || "")
+export const slugifyCategory = (value) => String(value || "")
   .toLowerCase()
   .trim()
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/(^-|-$)/g, "");
+
+const slugify = slugifyCategory;
 
 export const parseCategoryList = (value, fallback = DEFAULT_CATEGORIES) => {
   if (!value) return fallback;
@@ -56,6 +58,39 @@ export const parseCategoryList = (value, fallback = DEFAULT_CATEGORIES) => {
 export const getCategoriesFromSettings = (settings = {}, fallback = DEFAULT_CATEGORIES) => {
   // Legacy settings for category names were removed. Return fallback/default categories.
   return fallback;
+};
+
+export const getCategorySlugMap = (categories = []) => {
+  const categoryRecords = Array.isArray(categories) ? categories : [];
+  const names = uniqueClean([
+    ...DEFAULT_CATEGORIES,
+    ...categoryRecords.map((category) => category?.name || category?.title || ""),
+  ]);
+
+  const map = names.reduce((result, name) => {
+    result[slugifyCategory(name)] = name;
+    return result;
+  }, {});
+
+  categoryRecords.forEach((category) => {
+    const name = String(category?.name || category?.title || "").trim();
+    const slug = String(category?.slug || "").trim();
+    if (name && slug) map[slug] = name;
+  });
+
+  return map;
+};
+
+export const resolveCategoryFromSlug = (slug, categories = []) => {
+  const safeSlug = String(slug || "").trim();
+  if (!safeSlug) return "";
+
+  const map = getCategorySlugMap(categories);
+  const direct = map[safeSlug] || map[slugifyCategory(decodeURIComponent(safeSlug).replace(/_/g, " "))];
+  if (direct) return direct;
+
+  const fallback = decodeURIComponent(safeSlug).replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return fallback || "";
 };
 
 export const normalizeCategoryRecord = (category = {}) => {

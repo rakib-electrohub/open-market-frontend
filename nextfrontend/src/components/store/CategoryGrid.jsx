@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@/lib/next-router";
-import { Smartphone, Shirt, Home, Sparkles, Dumbbell, ShoppingBasket, Gamepad2, BookOpen, Car, MoreHorizontal } from "lucide-react";
-import { apiClient } from "@/api/apiClient";
+import { Smartphone, Shirt, Home, Sparkles, Dumbbell, ShoppingBasket, Gamepad2, BookOpen, Car, MoreHorizontal, ArrowRight } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
-import { getCategoriesFromSettings } from "@/utils/categories";
+import { getCategoriesFromSettings, slugifyCategory } from "@/utils/categories";
 import { normalizeImageUrl } from "@/utils/imageUrls";
 
 const CATEGORY_STYLES = [
@@ -18,31 +17,27 @@ const CATEGORY_STYLES = [
   { icon: Car, color: "bg-gray-50 text-gray-600", border: "hover:border-gray-300" },
 ];
 
-export default function CategoryGrid() {
+const INITIAL_VISIBLE_CATEGORIES = 8;
+const CATEGORY_BATCH_SIZE = 8;
+
+export default function CategoryGrid({ initialCategories = [] }) {
   const settings = useAppSettings();
-  const [categories, setCategories] = useState([]);
-
-  useEffect(() => {
-    apiClient.entities.Category.list("-created_date", 100)
-      .then((items) => {
-        const normalized = (items || [])
-          .filter((entry) => entry?.name && !entry?.parent_id)
-          .map((entry, index) => ({
-            id: entry.id,
-            name: entry.name,
-            image: entry.image,
-            slug: entry.slug,
-            ...CATEGORY_STYLES[index % CATEGORY_STYLES.length],
-          }));
-        if (normalized.length) setCategories(normalized);
-      })
-      .catch(() => {});
-  }, []);
-
-  const visibleCategories = categories.length ? categories.slice(0, 8) : getCategoriesFromSettings(settings).slice(0, 8).map((name, index) => ({
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_CATEGORIES);
+  const categories = initialCategories
+    .filter((entry) => entry?.name && !entry?.parent_id)
+    .map((entry, index) => ({
+      id: entry.id,
+      name: entry.name,
+      image: entry.image || entry.image_url,
+      slug: entry.slug,
+      ...CATEGORY_STYLES[index % CATEGORY_STYLES.length],
+    }));
+  const allCategories = categories.length ? categories : getCategoriesFromSettings(settings).map((name, index) => ({
     name,
     ...CATEGORY_STYLES[index % CATEGORY_STYLES.length],
   }));
+  const visibleCategories = allCategories.slice(0, visibleCount);
+  const hasMoreCategories = visibleCount < allCategories.length;
 
   const moreCard = { name: "More Categories", icon: MoreHorizontal, color: "bg-primary/10 text-primary", border: "hover:border-primary/30" };
 
@@ -50,11 +45,13 @@ export default function CategoryGrid() {
     <section>
       <div className="flex items-center justify-between mb-5">
         <h2 className="font-poppins font-bold text-xl text-foreground">Shop by Category</h2>
-        <Link to="/products" className="text-primary text-sm font-medium hover:underline">View All →</Link>
+        <Link to="/categories" className="inline-flex items-center gap-1 text-primary text-sm font-medium hover:underline">
+          View all categories <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {visibleCategories.map(({ name, icon: Icon, color, border, image }) => (
-          <Link key={name} to={`/products?main_category=${encodeURIComponent(name)}`}
+        {visibleCategories.map(({ name, icon: Icon, color, border, image, slug }) => (
+          <Link key={name} to={`/products/${encodeURIComponent(slug || slugifyCategory(name))}`}
             className={`flex flex-col items-center gap-2 p-3 bg-white rounded-xl border border-border ${border} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group`}>
             {image ? (
               <div className="w-14 h-14 rounded-xl overflow-hidden border border-border/60 bg-muted/30">
@@ -68,12 +65,19 @@ export default function CategoryGrid() {
             <span className="text-[10px] sm:text-xs font-medium text-foreground text-center leading-tight">{name}</span>
           </Link>
         ))}
-        <Link to="/products" className={`flex flex-col items-center gap-2 p-3 bg-white rounded-xl border border-border ${moreCard.border} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group`}>
-          <div className={`w-10 h-10 rounded-xl ${moreCard.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-            <MoreHorizontal className="w-5 h-5" />
-          </div>
-          <span className="text-[10px] sm:text-xs font-medium text-foreground text-center leading-tight">More Categories</span>
-        </Link>
+        {hasMoreCategories && (
+          <button
+            type="button"
+            onClick={() => setVisibleCount((count) => Math.min(count + CATEGORY_BATCH_SIZE, allCategories.length))}
+            aria-label={`Show ${Math.min(CATEGORY_BATCH_SIZE, allCategories.length - visibleCount)} more categories`}
+            className={`flex flex-col items-center justify-center gap-2 p-3 bg-white rounded-xl border border-border ${moreCard.border} transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 group`}
+          >
+            <div className={`w-10 h-10 rounded-xl ${moreCard.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+              <MoreHorizontal className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] sm:text-xs font-medium text-foreground text-center leading-tight">{moreCard.name}</span>
+          </button>
+        )}
       </div>
     </section>
   );

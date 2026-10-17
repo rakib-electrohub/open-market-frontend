@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -61,7 +62,10 @@ export default function ProductDetail({ initialData }) {
   const [selectedVariants, setSelectedVariants] = useState({});
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState(null);
-  const [cart, setCart] = useState(() => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } });
+  const [cart, setCart] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(window.localStorage.getItem("cart") || "[]"); } catch { return []; }
+  });
   const [loading, setLoading] = useState(!hasInitialData);
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -119,6 +123,7 @@ export default function ProductDetail({ initialData }) {
   const isWishlisted = wishlist.some(w => w.product_id === product.id);
   const productImages = getProductImageUrls(product);
   const productDescription = product.short_description || product.description || `Buy ${product.name} from Open Market BD.`;
+  const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
   const productStructuredData = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -126,13 +131,18 @@ export default function ProductDetail({ initialData }) {
     description: productDescription.replace(/<[^>]+>/g, " ").trim(),
     image: productImages,
     sku: product.sku || product.id,
+    brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
+    category: product.main_category || product.category || "General",
     offers: {
       "@type": "Offer",
       url: `${typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")}/product/${product.id}`,
       priceCurrency: "BDT",
       price: String(price),
       availability: product.stock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      itemCondition: "https://schema.org/NewCondition",
     },
+    ...(product.seller_id ? { seller: { "@type": "Store", name: product.seller_name || "Open Market Seller" } } : {}),
+    ...(avgRating > 0 || reviews.length ? { aggregateRating: { "@type": "AggregateRating", ratingValue: Number(avgRating || 0), reviewCount: reviews.length } } : {}),
   };
 
   const handleAddToCart = () => {
@@ -141,7 +151,7 @@ export default function ProductDetail({ initialData }) {
       ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + quantity } : c)
       : [...cart, { product_id: product.id, product_name: product.name, product_image: productImages[0], quantity, price }];
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     toast({ title: "Added to cart!", description: `${quantity}x ${product.name}` });
   };
 
@@ -176,8 +186,6 @@ export default function ProductDetail({ initialData }) {
       toast({ title: "Error updating wishlist", description: err.message || "Something went wrong", variant: "destructive" });
     }
   };
-
-  const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
 
   return (
     <div className="min-h-screen bg-background">

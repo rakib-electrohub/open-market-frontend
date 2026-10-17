@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -20,7 +21,7 @@ export default function Cart() {
 
   const saveCart = (newCart) => {
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
   };
 
   const updateQty = (productId, qty) => {

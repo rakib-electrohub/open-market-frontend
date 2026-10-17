@@ -17,7 +17,10 @@ Optional environment variables:
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 API_URL=http://localhost:4000
 REVALIDATE_SECRET=use-a-private-value-in-production
+PG_POOL_MAX=20
 ```
+
+`PG_POOL_MAX` is the maximum PostgreSQL connections for each running app process (default `20`, allowed `1`-`50`). Set it according to the database connection limit and the number of app instances; the combined pool sizes must stay below the database limit, leaving room for maintenance and other clients.
 
 ## Architecture
 

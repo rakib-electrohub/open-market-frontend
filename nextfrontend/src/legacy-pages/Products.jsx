@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
-import { useLocation } from "@/lib/next-router";
-import { Link } from "@/lib/next-router";
+import { useLocation, useNavigate } from "@/lib/next-router";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/store/ProductCard";
@@ -10,10 +10,11 @@ import SEO from "@/components/SEO";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { buildCollectionPageSchema, buildWebsiteSchema, getCategorySeoData } from "@/lib/seo";
 import { SlidersHorizontal, X, Loader2 } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { buildWishlistItem } from "@/utils/wishlist";
-import { getCategoriesFromSettings, getMainCategories, getSubCategories } from "@/utils/categories";
+import { getCategoriesFromSettings, getMainCategories, getSubCategories, slugifyCategory } from "@/utils/categories";
 
 const SORT_OPTIONS = [
   { value: "popularity", label: "Popularity" },
@@ -35,24 +36,28 @@ const mergeUniqueProducts = (...lists) => {
 };
 
 export default function Products({ initialData }) {
-  const hasInitialData = Boolean(initialData);
   const [products, setProducts] = useState(() => initialData?.products || []);
-  const [filtered, setFiltered] = useState([]);
+  const [filtered, setFiltered] = useState(() => initialData?.products || []);
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState("");
-  const [cart, setCart] = useState(() => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } });
-  const [loading, setLoading] = useState(true);
+  const [cart, setCart] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(window.localStorage.getItem("cart") || "[]"); } catch { return []; }
+  });
+  const [loading, setLoading] = useState(!initialData);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(() => initialData?.hasMore ?? true);
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
   const loadMoreRef = useRef(null);
+  const loadMoreInProgressRef = useRef(false);
+  const listingStateRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const settings = useAppSettings();
   const maxPriceFilter = parseInt(settings.max_price_filter, 10) || 50000;
   const priceFilterDefaultEnabled = settings.price_filter_enabled === "true";
 
   const [sort, setSort] = useState("popularity");
-  const [selectedMainCategory, setSelectedMainCategory] = useState("");
+  const [selectedMainCategory, setSelectedMainCategory] = useState(initialData?.category || "");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
   const [categoryOptions, setCategoryOptions] = useState(() => initialData?.categories || []);
   const [priceFilterEnabled, setPriceFilterEnabled] = useState(priceFilterDefaultEnabled);
@@ -61,6 +66,7 @@ export default function Products({ initialData }) {
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [inStockOnly, setInStockOnly] = useState(false);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const normalizePriceRange = ([min, max]) => {
     const safeMin = Math.max(0, Math.min(Number(min) || 0, maxPriceFilter));
@@ -84,42 +90,114 @@ export default function Products({ initialData }) {
   const mainCategoryParam = urlParams.get("main_category") || "";
   const subCategoryParam = urlParams.get("subcategory") || "";
   const flashOnly = urlParams.get("flash") === "true";
+  const routeMainCategory = initialData?.category && location.pathname.startsWith("/products/")
+    ? initialData.category
+    : mainCategoryParam || categoryParam || "";
+  const routeSubCategory = subCategoryParam || "";
 
-  // Re-apply category from URL whenever the URL changes (e.g. clicking navbar category links)
-  useEffect(() => {
-    if (mainCategoryParam || subCategoryParam) {
-      setSelectedMainCategory(mainCategoryParam);
-      setSelectedSubCategory(subCategoryParam);
-    } else if (categoryParam) {
-      setSelectedMainCategory(categoryParam);
-      setSelectedSubCategory("");
-    } else {
-      setSelectedMainCategory("");
-      setSelectedSubCategory("");
+  const getRouteFilterQuery = (routeMainCategory = selectedMainCategory, routeSubCategory = selectedSubCategory) => {
+    const query = { is_active: true, approval_status: "approved" };
+
+    if (routeSubCategory) {
+      return {
+        ...query,
+        subcategory: routeSubCategory,
+        ...(routeMainCategory ? { $or: [{ main_category: routeMainCategory }, { category: routeMainCategory }, { subcategory: routeMainCategory }] } : {}),
+      };
     }
-  }, [location.search]);
+
+    if (routeMainCategory) {
+      return {
+        ...query,
+        $or: [{ main_category: routeMainCategory }, { category: routeMainCategory }, { subcategory: routeMainCategory }],
+      };
+    }
+
+    return query;
+  };
+
+  listingStateRef.current = {
+    hasMore,
+    loading,
+    offset: (currentPage - 1) * PRODUCTS_PAGE_SIZE + products.length,
+    query: getRouteFilterQuery(routeMainCategory, routeSubCategory),
+    routeKey: `${location.pathname}${location.search}`,
+  };
+
+  const requestMoreProducts = async () => {
+    const listing = listingStateRef.current;
+    if (!listing?.hasMore || listing.loading || loadMoreInProgressRef.current) return;
+
+    const requestedRoute = listing.routeKey;
+    loadMoreInProgressRef.current = true;
+    setLoadingMore(true);
+    try {
+      const nextProducts = await apiClient.entities.Product.filter(
+        listing.query,
+        "-sold_count",
+        PRODUCTS_PAGE_SIZE,
+        listing.offset
+      );
+      if (listingStateRef.current?.routeKey !== requestedRoute) return;
+      setProducts(previous => mergeUniqueProducts(previous, nextProducts));
+      setHasMore(nextProducts.length === PRODUCTS_PAGE_SIZE);
+    } catch {
+      if (listingStateRef.current?.routeKey === requestedRoute) setHasMore(false);
+    } finally {
+      loadMoreInProgressRef.current = false;
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
-    if (hasInitialData) {
+    setSelectedMainCategory(routeMainCategory);
+    setSelectedSubCategory(routeSubCategory);
+
+    let isActive = true;
+    const query = getRouteFilterQuery(routeMainCategory, routeSubCategory);
+
+    if (Array.isArray(initialData?.products)) {
+      setProducts(mergeUniqueProducts(initialData.products));
+      setCategoryOptions(initialData.categories || []);
+      setHasMore(initialData.hasMore ?? initialData.products.length === PRODUCTS_PAGE_SIZE);
       setLoading(false);
-      return undefined;
+      apiClient.auth.me().then((user) => {
+        if (!isActive) return;
+        setUserEmail(user.email);
+        return apiClient.entities.Wishlist.filter({ created_by: user.email });
+      }).then((items) => {
+        if (isActive && items) setWishlist(items);
+      }).catch(() => {});
+
+      return () => {
+        isActive = false;
+      };
     }
 
+    setLoading(true);
     Promise.all([
-      apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-sold_count", PRODUCTS_PAGE_SIZE, 0),
+      apiClient.entities.Product.filter(query, "-sold_count", PRODUCTS_PAGE_SIZE, (currentPage - 1) * PRODUCTS_PAGE_SIZE),
       apiClient.entities.Category.list("-created_date", 200),
-      apiClient.auth.me().then(u => {
+      apiClient.auth.me().then((u) => {
         setUserEmail(u.email);
         return apiClient.entities.Wishlist.filter({ created_by: u.email });
-      }).catch(() => [])
+      }).catch(() => []),
     ]).then(([prods, categories, wish]) => {
+      if (!isActive) return;
       setProducts(mergeUniqueProducts(prods));
       setCategoryOptions(categories || []);
       setWishlist(wish);
       setHasMore(prods.length === PRODUCTS_PAGE_SIZE);
       setLoading(false);
+    }).catch(() => {
+      if (!isActive) return;
+      setLoading(false);
     });
-  }, [hasInitialData]);
+
+    return () => {
+      isActive = false;
+    };
+  }, [location.pathname, location.search, initialData]);
 
   useEffect(() => {
     const enableLoading = () => setHasUserScrolled(true);
@@ -135,34 +213,16 @@ export default function Products({ initialData }) {
 
   useEffect(() => {
     const sentinel = loadMoreRef.current;
-    if (!sentinel || !hasMore || !hasUserScrolled) return undefined;
-
-    const loadMoreProducts = async () => {
-      if (loading || loadingMore) return;
-      setLoadingMore(true);
-      try {
-        const nextProducts = await apiClient.entities.Product.filter(
-          { is_active: true, approval_status: "approved" },
-          "-sold_count",
-          PRODUCTS_PAGE_SIZE,
-          products.length
-        );
-        setProducts(previous => mergeUniqueProducts(previous, nextProducts));
-        setHasMore(nextProducts.length === PRODUCTS_PAGE_SIZE);
-      } finally {
-        setLoadingMore(false);
-      }
-    };
+    if (!sentinel || !hasUserScrolled) return undefined;
 
     const handleScroll = () => {
       if (window.scrollY <= 0 || sentinel.getBoundingClientRect().top > window.innerHeight) return;
-      loadMoreProducts();
+      requestMoreProducts();
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
-  }, [hasMore, hasUserScrolled, loading, loadingMore, products.length]);
+  }, [hasUserScrolled]);
 
   useEffect(() => {
     let result = [...products];
@@ -198,7 +258,7 @@ export default function Products({ initialData }) {
     const newCart = existing ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + 1 } : c)
       : [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     toast({ title: "Added to cart!", description: product.name });
   };
 
@@ -224,14 +284,70 @@ export default function Products({ initialData }) {
   const toggleCategory = (cat) => {
     // legacy checkbox filter removed
   };
+
+  const resetFilters = (nextPath = "/products") => {
+    setSelectedMainCategory("");
+    setSelectedSubCategory("");
+    setPriceRange([0, maxPriceFilter]);
+    setPriceFilterEnabled(priceFilterDefaultEnabled);
+    setMinRating(0);
+    setSelectedBrands([]);
+    setInStockOnly(false);
+    navigate(nextPath);
+  };
+
+  const handleMainCategoryChange = (value) => {
+    setSelectedMainCategory(value);
+    setSelectedSubCategory("");
+
+    if (!value) {
+      navigate("/products");
+      return;
+    }
+
+    navigate(`/products/${encodeURIComponent(slugifyCategory(value))}`);
+  };
+
+  const handleSubCategoryChange = (value) => {
+    setSelectedSubCategory(value);
+
+    const base = selectedMainCategory ? `/products/${encodeURIComponent(slugifyCategory(selectedMainCategory))}` : "/products";
+    if (!selectedMainCategory) {
+      navigate(base);
+      return;
+    }
+
+    if (!value) {
+      navigate(base);
+      return;
+    }
+
+    navigate(`${base}?subcategory=${encodeURIComponent(value)}`);
+  };
+
   const toggleBrand = (brand) => {
     setSelectedBrands(prev => prev.includes(brand) ? prev.filter(b => b !== brand) : [...prev, brand]);
   };
+  const hasActiveFilters = ((selectedMainCategory ? 1 : 0) + (selectedSubCategory ? 1 : 0) + (minRating > 0 ? 1 : 0) + (selectedBrands.length ? 1 : 0) + (inStockOnly ? 1 : 0) + (priceFilterEnabled ? 1 : 0)) > 0;
   const availableBrands = [...new Set(products.map(p => p.brand).filter(Boolean))].sort();
 
   const categories = getCategoriesFromSettings(settings);
   const mainCategories = getMainCategories(categoryOptions.length ? categoryOptions : categories.map((name) => ({ id: name, name, parent_id: null })));
   const subCategories = selectedMainCategory ? getSubCategories(categoryOptions, mainCategories.find((cat) => cat.name === selectedMainCategory)?.id) : [];
+  const currentCategoryLabel = selectedSubCategory || selectedMainCategory || (categoryParam || mainCategoryParam || "");
+  const categorySeo = getCategorySeoData(currentCategoryLabel || "Products", filtered.length);
+  const safeOrigin = typeof window !== "undefined"
+    ? window.location.origin
+    : (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000");
+  const structuredData = [
+    buildWebsiteSchema(),
+    buildCollectionPageSchema({
+      name: currentCategoryLabel || "Open Market Products",
+      description: categorySeo.description,
+      url: `${safeOrigin}${location.pathname}${location.search || ""}`,
+      itemCount: filtered.length,
+    }),
+  ];
   const sidebarContent = (
     <div className="space-y-6">
       {/* Categories */}
@@ -240,7 +356,7 @@ export default function Products({ initialData }) {
         <div className="space-y-2">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">Main Category</span>
-            <select value={selectedMainCategory} onChange={(e) => { setSelectedMainCategory(e.target.value); setSelectedSubCategory(""); }} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+            <select value={selectedMainCategory} onChange={(e) => handleMainCategoryChange(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
               <option value="">All categories</option>
               {mainCategories.map((cat) => <option key={cat.id || cat.name} value={cat.name}>{cat.name}</option>)}
             </select>
@@ -248,7 +364,7 @@ export default function Products({ initialData }) {
           {selectedMainCategory && subCategories.length > 0 && (
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">Sub Category</span>
-              <select value={selectedSubCategory} onChange={(e) => setSelectedSubCategory(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+              <select value={selectedSubCategory} onChange={(e) => handleSubCategoryChange(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
                 <option value="">All sub categories</option>
                 {subCategories.map((cat) => <option key={cat.id || cat.name} value={cat.name}>{cat.name}</option>)}
               </select>
@@ -342,7 +458,7 @@ export default function Products({ initialData }) {
         </label>
       </div>
 
-      <Button variant="outline" size="sm" className="w-full" onClick={() => { setSelectedMainCategory(""); setSelectedSubCategory(""); setPriceRange([0, maxPriceFilter]); setPriceFilterEnabled(priceFilterDefaultEnabled); setMinRating(0); setSelectedBrands([]); setInStockOnly(false); }}>
+      <Button variant="outline" size="sm" className="w-full" onClick={() => resetFilters()}>
         <X className="w-3 h-3 mr-1" /> Clear Filters
       </Button>
     </div>
@@ -351,30 +467,40 @@ export default function Products({ initialData }) {
   return (
     <div className="min-h-screen bg-background">
       <SEO
-        title={searchQuery ? `Search results for ${searchQuery} | Open Market BD` : "Products | Open Market BD"}
-        description="Browse approved products from trusted sellers on Open Market BD. Shop electronics, fashion, home goods, and more."
-        canonicalPath="/products"
+        title={searchQuery ? `Search results for ${searchQuery} | Open Market` : currentCategoryLabel ? `${currentCategoryLabel} | Open Market` : "Products | Open Market"}
+        description={searchQuery ? `Search results for ${searchQuery} on Open Market. Discover trusted products and deals from verified sellers.` : categorySeo.description}
+        canonicalPath={location.pathname + (location.search || "")}
+        structuredData={structuredData}
+        image={filtered[0]?.images?.[0] || "/og-default.svg"}
       />
       <Navbar cart={cart} wishlistCount={wishlist.length} />
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="font-poppins font-bold text-2xl">{searchQuery ? `Results for "${searchQuery}"` : flashOnly ? "Flash Sales" : "All Products"}</h1>
-            <p className="text-muted-foreground text-sm mt-1">{filtered.length} products found</p>
-          </div>
-          <div className="flex items-center gap-3">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden flex items-center gap-2 text-sm border border-border px-3 py-2 rounded-lg hover:border-primary/50">
-                      <SlidersHorizontal className="w-4 h-4" /> Filters
-                      {((selectedMainCategory ? 1 : 0) + (selectedSubCategory ? 1 : 0) + (minRating > 0 ? 1 : 0) + (selectedBrands.length ? 1 : 0) + (inStockOnly ? 1 : 0) + (priceFilterEnabled ? 1 : 0)) > 0 && (
-                        <Badge className="bg-primary text-white h-4 w-4 p-0 text-[10px] flex items-center justify-center">{(selectedMainCategory ? 1 : 0) + (selectedSubCategory ? 1 : 0) + (minRating > 0 ? 1 : 0) + (selectedBrands.length ? 1 : 0) + (inStockOnly ? 1 : 0) + (priceFilterEnabled ? 1 : 0)}</Badge>
-                      )}
-                    </button>
-            <div className="flex items-center gap-2 border border-border rounded-lg px-3 py-2">
-              <span className="text-xs text-muted-foreground">Sort:</span>
-              <select value={sort} onChange={e => setSort(e.target.value)} className="text-sm bg-transparent focus:outline-none">
-                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+        <div className="mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 rounded-lg border border-border bg-white px-2 py-1.5 shadow-sm lg:flex-nowrap lg:gap-3 lg:px-3 lg:py-2">
+            <div className="order-1 flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground lg:order-none">
+              <span>{filtered.length}</span>
+              <span>items found</span>
+            </div>
+
+            <div className="order-3 min-w-0 flex-[1_1_12rem] text-center lg:order-none lg:flex-1">
+              <span className="inline-flex max-w-full items-center justify-center whitespace-normal break-words rounded-full border border-primary/30 bg-primary/5 px-2 py-1 text-sm font-medium text-primary lg:px-3">
+                {searchQuery ? `Results for "${searchQuery}"` : flashOnly ? "Flash Sales" : categorySeo.heading}
+              </span>
+            </div>
+
+            <div className="order-2 ml-auto flex shrink-0 items-center gap-2 lg:order-none lg:ml-auto lg:gap-3">
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden flex shrink-0 items-center gap-2 text-sm border border-border px-2 py-1.5 rounded-lg hover:border-primary/50">
+                <SlidersHorizontal className="w-4 h-4" /> Filters
+                {hasActiveFilters && (
+                  <Badge className="bg-primary text-white h-4 w-4 p-0 text-[10px] flex items-center justify-center">{(selectedMainCategory ? 1 : 0) + (selectedSubCategory ? 1 : 0) + (minRating > 0 ? 1 : 0) + (selectedBrands.length ? 1 : 0) + (inStockOnly ? 1 : 0) + (priceFilterEnabled ? 1 : 0)}</Badge>
+                )}
+              </button>
+              <div className="flex min-w-0 items-center gap-2 border border-border rounded-lg px-2 py-1.5 lg:px-3 lg:py-2">
+                <span className="text-xs text-muted-foreground">Sort:</span>
+                <select value={sort} onChange={e => setSort(e.target.value)} className="min-w-0 text-sm bg-transparent focus:outline-none">
+                  {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -404,7 +530,7 @@ export default function Products({ initialData }) {
             ) : filtered.length === 0 ? (
               <div className="text-center py-20">
                 <p className="text-muted-foreground text-lg">No products found.</p>
-                <Button variant="outline" className="mt-4" onClick={() => { setSelectedMainCategory(""); setSelectedSubCategory(""); setPriceRange([0, maxPriceFilter]); setPriceFilterEnabled(priceFilterDefaultEnabled); setMinRating(0); }}>Clear Filters</Button>
+                <Button variant="outline" className="mt-4" onClick={() => resetFilters()}>Clear Filters</Button>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -417,9 +543,7 @@ export default function Products({ initialData }) {
             {loadingMore && <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>}
             {hasMore && !loadingMore && (
               <div className="flex justify-center py-6">
-                <Link to={`/products?page=${currentPage + 1}`} className="text-sm font-medium text-primary hover:underline">
-                  Next product page
-                </Link>
+                <Button variant="outline" onClick={requestMoreProducts}>Load more products</Button>
               </div>
             )}
           </div>

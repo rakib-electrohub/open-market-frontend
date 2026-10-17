@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { Link, useNavigate } from "@/lib/next-router";
+import { StoreChromeContext } from "@/components/layout/StoreChromeContext";
 import { ShoppingCart, Heart, User, Menu, X, ChevronDown, Package, LayoutDashboard, Store, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,27 @@ import AnnouncementBar from "@/components/layout/AnnouncementBar";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import FallbackImage from "@/components/ui/FallbackImage";
 import { normalizeImageUrl } from "@/utils/imageUrls";
-import { getCategoriesFromSettings } from "@/utils/categories";
+import { getCategoriesFromSettings, slugifyCategory } from "@/utils/categories";
 
-export default function Navbar({ cart = [], wishlistCount = 0 }) {
+export default function Navbar(props = {}) {
+  const storeChrome = useContext(StoreChromeContext);
+
+  if (storeChrome && !props.persistent) {
+    return <PageNavbarSync wishlistCount={props.wishlistCount} setWishlistCount={storeChrome.setWishlistCount} />;
+  }
+
+  return <NavbarContent cart={props.cart || []} wishlistCount={props.wishlistCount || 0} />;
+}
+
+function PageNavbarSync({ wishlistCount, setWishlistCount }) {
+  useEffect(() => {
+    if (typeof wishlistCount === "number") setWishlistCount(wishlistCount);
+  }, [wishlistCount, setWishlistCount]);
+
+  return null;
+}
+
+function NavbarContent({ cart = [], wishlistCount = 0 }) {
   const settings = useAppSettings();
   const storeLogo = settings?.store_logo;
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -70,7 +89,7 @@ export default function Navbar({ cart = [], wishlistCount = 0 }) {
           </Link>
 
           {/* Search */}
-          <div className="flex-1 max-w-2xl hidden sm:block">
+          <div className="hidden min-w-0 flex-1 max-w-2xl min-[480px]:block">
             <SearchSuggestions />
           </div>
 
@@ -121,7 +140,7 @@ export default function Navbar({ cart = [], wishlistCount = 0 }) {
         </div>
 
         {/* Mobile search */}
-        <div className="sm:hidden px-4 pb-3">
+        <div className="px-4 pb-3 min-[480px]:hidden">
           <SearchSuggestions className="w-full" />
         </div>
       </div>
@@ -137,7 +156,7 @@ export default function Navbar({ cart = [], wishlistCount = 0 }) {
               <Zap className="w-3 h-3 fill-yellow-300" /> Flash Sales
             </Link>
             {categories.map((cat) => (
-              <Link key={cat} to={`/products?main_category=${encodeURIComponent(cat)}`}
+              <Link key={cat} to={`/products/${encodeURIComponent(slugifyCategory(cat))}`}
                 className="flex-shrink-0 px-3 py-2.5 text-xs font-medium hover:bg-white/20 transition-colors whitespace-nowrap">
                 {cat}
               </Link>

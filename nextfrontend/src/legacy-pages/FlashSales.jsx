@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/store/ProductCard";
@@ -45,7 +46,7 @@ export default function FlashSales() {
       ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + 1 } : c)
       : [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     toast({ title: "Added to cart!", description: product.name });
   };
 

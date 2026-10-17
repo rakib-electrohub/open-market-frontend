@@ -77,14 +77,14 @@ export default function SearchSuggestions({ className = "" }) {
             onChange={e => setQuery(e.target.value)}
             onFocus={() => { setFocused(true); if (query) setOpen(true); else setOpen(true); }}
             placeholder="Search products, brands, categories..."
-            className="flex-1 border-0 outline-none px-4 text-sm h-10 bg-white text-foreground placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 border-0 outline-none px-2 text-sm h-10 bg-white text-foreground placeholder:text-muted-foreground sm:px-4"
           />
           {query && (
             <button type="button" onClick={() => { setQuery(""); setSuggestions([]); setOpen(false); }} className="px-2 text-muted-foreground hover:text-foreground">
               <X className="w-4 h-4" />
             </button>
           )}
-          <button type="submit" className="bg-primary px-5 text-white hover:bg-primary/90 transition-colors rounded-r-full">
+          <button type="submit" className="bg-primary px-3 text-white hover:bg-primary/90 transition-colors rounded-r-full sm:px-5">
             <Search className="w-4 h-4" />
           </button>
         </div>

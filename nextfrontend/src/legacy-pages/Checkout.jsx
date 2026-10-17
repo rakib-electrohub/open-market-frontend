@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
 import { usePersistentToast } from "@/components/ui/PersistentToast";
 import { useAppSettings } from "@/hooks/useAppSettings";
@@ -277,7 +278,7 @@ export default function Checkout() {
 
     // Clear cart
     if (!directBuyItem) {
-      localStorage.setItem("cart", "[]");
+      persistCart([]);
     }
 
     // Send Slack notification

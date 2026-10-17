@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { uploadImageWithSizeCheck } from "@/utils/imageUpload";
 import { useToast } from "@/components/ui/use-toast";
 import Navbar from "@/components/layout/Navbar";
@@ -118,7 +119,7 @@ export default function Account() {
       ? cart.map(c => c.product_id === item.product_id ? { ...c, quantity: c.quantity + 1 } : c)
       : [...cart, { product_id: item.product_id, product_name: item.product_name, product_image: item.product_image, quantity: 1, price: item.product_price }];
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     toast({ title: "Added to cart!", description: item.product_name });
   };
 

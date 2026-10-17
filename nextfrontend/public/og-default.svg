@@ -1,0 +1,19 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" rx="28" fill="url(#paint0_linear)"/>
+  <circle cx="1045" cy="132" r="120" fill="rgba(255,255,255,0.12)"/>
+  <circle cx="970" cy="500" r="150" fill="rgba(255,255,255,0.08)"/>
+  <rect x="90" y="120" width="420" height="240" rx="30" fill="rgba(255,255,255,0.09)" stroke="rgba(255,255,255,0.18)"/>
+  <path d="M180 280C180 246.863 206.863 220 240 220H310C343.137 220 370 246.863 370 280V320C370 353.137 343.137 380 310 380H240C206.863 380 180 353.137 180 320V280Z" fill="white" fill-opacity="0.18"/>
+  <path d="M240 215L348 145H390V225L317 272L240 215Z" fill="white" fill-opacity="0.9"/>
+  <path d="M306 155H435V275H306V155Z" fill="white" fill-opacity="0.12"/>
+  <text x="90" y="430" fill="white" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">Open Market</text>
+  <text x="90" y="500" fill="rgba(255,255,255,0.8)" font-family="Arial, Helvetica, sans-serif" font-size="28">Trusted marketplace for products, deals, and sellers</text>
+  <text x="90" y="560" fill="rgba(255,255,255,0.7)" font-family="Arial, Helvetica, sans-serif" font-size="22">Shop smarter • Discover faster • Buy with confidence</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="89" y1="55" x2="1080" y2="619" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7A18"/>
+      <stop offset="0.55" stop-color="#F2516A"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+</svg>

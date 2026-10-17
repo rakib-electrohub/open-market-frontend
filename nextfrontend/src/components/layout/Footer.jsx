@@ -1,8 +1,16 @@
+import { useContext } from "react";
 import { Link } from "@/lib/next-router";
 import { Facebook, Instagram, Youtube, Twitter, Phone, Mail, MapPin } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
+import { StoreChromeContext } from "@/components/layout/StoreChromeContext";
 
-export default function Footer() {
+export default function Footer({ persistent = false }) {
+  const storeChrome = useContext(StoreChromeContext);
+  if (storeChrome && !persistent) return null;
+  return <FooterContent />;
+}
+
+function FooterContent() {
   const settings = useAppSettings();
   
   const contactPhone = settings.contact_phone || "+880 1700-000000";

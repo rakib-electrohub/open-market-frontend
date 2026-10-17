@@ -1249,26 +1249,128 @@ app.post('/api/admin/invite', async (req, res) => {
   }
 });
 
+app.get('/api/public-sitemap/counts', async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE entity = 'Product'
+            AND data->>'is_active' = 'true'
+            AND data->>'approval_status' = 'approved'
+        )::int AS products,
+        COUNT(*) FILTER (
+          WHERE entity = 'Seller'
+            AND data->>'status' = 'approved'
+        )::int AS sellers
+      FROM entities
+      WHERE entity IN ('Product', 'Seller')
+    `);
+    res.json({ products: result.rows[0].products, sellers: result.rows[0].sellers });
+  } catch (error) {
+    res.status(error.status || 500).json({ message: error.message });
+  }
+});
+
+app.get('/api/public-sitemap/:entity', async (req, res) => {
+  try {
+    const entity = req.params.entity;
+    const entityConfig = {
+      products: { name: 'Product', filter: "data->>'is_active' = 'true' AND data->>'approval_status' = 'approved'" },
+      sellers: { name: 'Seller', filter: "data->>'status' = 'approved'" },
+    }[entity];
+    if (!entityConfig) return res.status(404).json({ message: 'Sitemap collection not found' });
+
+    const requestedLimit = Number.parseInt(req.query.limit, 10) || 5000;
+    const requestedOffset = Number.parseInt(req.query.offset, 10) || 0;
+    const limit = Math.min(5000, Math.max(1, requestedLimit));
+    const offset = Math.min(2147483647, Math.max(0, requestedOffset));
+    const result = await pool.query(
+      `SELECT id, COALESCE(NULLIF(data->>'updated_date', ''), updated_date::text, created_date::text) AS last_modified
+       FROM entities
+       WHERE entity = $1 AND ${entityConfig.filter}
+       ORDER BY id ASC
+       LIMIT $2 OFFSET $3`,
+      [entityConfig.name, limit, offset]
+    );
+
+    res.json({ entries: result.rows });
+  } catch (error) {
+    res.status(error.status || 500).json({ message: error.message });
+  }
+});
+
 app.post('/api/entities/:entity/filter', async (req, res) => {
   try {
     const entity = req.params.entity;
     assertEntityName(entity);
     const { query = {}, order, limit, offset } = req.body;
+    const buildFilterClauses = (filterObj, startIndex = 2) => {
+      const conditions = [];
+      const values = [];
+      let nextIndex = startIndex;
+
+      const addComparison = (key, value) => {
+        if (key === 'id') {
+          conditions.push(`id = $${nextIndex}`);
+        } else if (key === 'created_date' || key === 'updated_date') {
+          conditions.push(`${key} = $${nextIndex}`);
+        } else {
+          assertEntityName(key);
+          conditions.push(`data->>'${key}' = $${nextIndex}`);
+        }
+        values.push(String(value));
+        nextIndex += 1;
+      };
+
+      const walk = (node) => {
+        if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+
+        for (const [key, value] of Object.entries(node)) {
+          if (key === '$or' || key === '$and') {
+            const groups = Array.isArray(value) ? value.filter(Boolean) : [value];
+            if (!groups.length) continue;
+
+            const groupClauses = groups.map((group) => {
+              const nested = buildFilterClauses(group, nextIndex);
+              nextIndex = nested.nextIndex;
+              values.push(...nested.values);
+              return `(${nested.conditions.join(' AND ')})`;
+            });
+
+            const combined = key === '$or' ? groupClauses.join(' OR ') : groupClauses.join(' AND ');
+            conditions.push(`(${combined})`);
+            continue;
+          }
+
+          if (value === undefined || value === null) continue;
+          if (Array.isArray(value)) {
+            if (!value.length) continue;
+            const placeholders = value.map(() => `$${nextIndex}`).join(', ');
+            if (key === 'id') {
+              conditions.push(`id IN (${placeholders})`);
+            } else if (key === 'created_date' || key === 'updated_date') {
+              conditions.push(`${key} IN (${placeholders})`);
+            } else {
+              assertEntityName(key);
+              conditions.push(`data->>'${key}' = ANY(ARRAY[${placeholders}])`);
+            }
+            values.push(...value.map((item) => String(item)));
+            nextIndex += value.length;
+            continue;
+          }
+
+          addComparison(key, value);
+        }
+      };
+
+      walk(filterObj);
+      return { conditions, values, nextIndex };
+    };
+
+    const filterBuild = buildFilterClauses(query, 2);
     const conditions = ['entity = $1'];
-    const values = [entity];
-    let idx = 2;
-    for (const [key, value] of Object.entries(query)) {
-      if (key === 'id') {
-        conditions.push(`id = $${idx}`);
-      } else if (key === 'created_date' || key === 'updated_date') {
-        conditions.push(`${key} = $${idx}`);
-      } else {
-        assertEntityName(key);
-        conditions.push(`data->>'${key}' = $${idx}`);
-      }
-      values.push(String(value));
-      idx += 1;
-    }
+    const values = [entity, ...filterBuild.values];
+    conditions.push(...filterBuild.conditions);
     const orderClause = parseOrder(order);
     const parsedLimit = Number(limit);
     const parsedOffset = Number(offset);
@@ -1416,7 +1518,9 @@ app.patch('/api/entities/:entity/:id', requireAuth, async (req, res) => {
       [payload, entity, id]
     );
     await deleteUploadFilesIfUnused(removedUploadUrls);
-    res.json(mapRow(result.rows[0]));
+    const record = mapRow(result.rows[0]);
+    invalidateEntityCache(entity, record);
+    res.json(record);
   } catch (error) {
     res.status(error.status || 500).json({ message: error.message });
   }

@@ -1,18 +1,21 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/store/ProductCard";
+import SEO from "@/components/SEO";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Store, Package, Star, MapPin, Phone, Mail, Shield, Loader2, ChevronRight } from "lucide-react";
 import { usePersistentToast } from "@/components/ui/PersistentToast";
+import { buildSellerStoreSchema, getSellerSeoData } from "@/lib/seo";
 
-export default function StorePage() {
+export default function StorePage({ initialData = {} }) {
   const { sellerId } = useParams();
-  const [seller, setSeller] = useState(null);
-  const [products, setProducts] = useState([]);
+  const [seller, setSeller] = useState(() => initialData?.seller || null);
+  const [products, setProducts] = useState(() => initialData?.products || []);
   const [reviews, setReviews] = useState([]);
   const [wishlist, setWishlist] = useState([]);
   const [cart, setCart] = useState(() => { try { return JSON.parse(localStorage.getItem("cart") || "[]"); } catch { return []; } });
@@ -22,23 +25,33 @@ export default function StorePage() {
   const notify = usePersistentToast();
 
   useEffect(() => {
+    if (initialData?.seller) {
+      setSeller(initialData.seller);
+      setProducts(initialData.products || []);
+      setLoading(false);
+      if ((initialData.products || []).length) {
+        const productIds = (initialData.products || []).map(p => p.id);
+        Promise.all(productIds.map(id => apiClient.entities.Review.filter({ product_id: id, is_approved: true }).catch(() => [])))
+          .then(results => setReviews(results.flat()));
+      }
+    }
+
     Promise.all([
-      apiClient.entities.Seller.get(sellerId).catch(() => null),
-      apiClient.entities.Product.filter({ seller_id: sellerId, is_active: true, approval_status: "approved" }, "-created_date"),
       apiClient.auth.me().then(u => apiClient.entities.Wishlist.filter({ created_by: u.email })).catch(() => []),
-    ]).then(([sellerResult, prods, wish]) => {
+      initialData?.seller ? Promise.resolve(initialData.seller) : apiClient.entities.Seller.get(sellerId).catch(() => null),
+      initialData?.products?.length ? Promise.resolve(initialData.products) : apiClient.entities.Product.filter({ seller_id: sellerId, is_active: true, approval_status: "approved" }, "-created_date"),
+    ]).then(([wish, sellerResult, prods]) => {
       if (sellerResult) setSeller(sellerResult);
-      setProducts(prods);
+      setProducts(prods || []);
       setWishlist(wish);
-      // fetch reviews for all products
-      if (prods.length) {
-        const productIds = prods.map(p => p.id);
+      if ((prods || []).length) {
+        const productIds = (prods || []).map(p => p.id);
         Promise.all(productIds.map(id => apiClient.entities.Review.filter({ product_id: id, is_approved: true }).catch(() => [])))
           .then(results => setReviews(results.flat()));
       }
       setLoading(false);
     });
-  }, [sellerId]);
+  }, [sellerId, initialData?.seller, initialData?.products]);
 
   const handleAddToCart = (product) => {
     const existing = cart.find(c => c.product_id === product.id);
@@ -47,7 +60,7 @@ export default function StorePage() {
       ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + 1 } : c)
       : [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     notify?.("Added to cart: " + product.name, "success");
   };
 
@@ -75,6 +88,8 @@ export default function StorePage() {
 
   const avgRating = reviews.length > 0 ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : null;
   const totalSales = products.reduce((s, p) => s + (p.sold_count || 0), 0);
+  const sellerSeo = getSellerSeoData(seller, products.length);
+  const sellerStructuredData = buildSellerStoreSchema(seller, products);
 
   if (loading) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
@@ -97,6 +112,13 @@ export default function StorePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={sellerSeo.title}
+        description={sellerSeo.description}
+        canonicalPath={`/store/${sellerId}`}
+        structuredData={sellerStructuredData}
+        image={seller.logo || "/og-default.svg"}
+      />
       <Navbar cart={cart} wishlistCount={wishlist.length} />
 
       {/* Store Hero Banner */}
@@ -137,6 +159,25 @@ export default function StorePage() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
+        <div className="bg-white rounded-2xl border border-border p-5 sm:p-6 mb-6 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] mb-3">
+                Trusted seller
+              </div>
+              <h2 className="font-poppins font-bold text-2xl sm:text-3xl text-foreground">{sellerSeo.heading}</h2>
+            </div>
+            <p className="text-sm text-muted-foreground max-w-xl">{sellerSeo.intro}</p>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {sellerSeo.badges.map((badge) => (
+              <span key={badge} className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
+                {badge}
+              </span>
+            ))}
+          </div>
+        </div>
+
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar */}
           <aside className="lg:w-56 flex-shrink-0 space-y-4">

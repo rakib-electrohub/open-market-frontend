@@ -1,15 +1,22 @@
 import LegacyPage from "@/components/LegacyPage";
 import { getProductById, getProductReviews } from "@/server/catalog";
+import { buildPageMetadata, productJsonLd, stripHtml } from "@/lib/seo";
 
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const product = await getProductById(id);
-  return {
-    title: product?.name || `Product ${id}`,
-    description: product?.short_description || product?.description || "View product details, price, availability, and seller information.",
-    alternates: { canonical: `/product/${id}` },
-    openGraph: { type: "website", title: product?.name || `Product ${id}`, description: product?.short_description || product?.description || "" },
-  };
+  const description = stripHtml(product?.short_description || product?.description || "View product details, price, availability, and seller information.");
+  const title = product?.name || `Product ${id}`;
+
+  return buildPageMetadata({
+    title,
+    description,
+    path: `/product/${id}`,
+    openGraphTitle: product?.name || title,
+    openGraphDescription: description,
+    image: Array.isArray(product?.images) && product.images[0] ? product.images[0] : undefined,
+    keywords: [product?.name, product?.brand, product?.main_category, "Open Market"].filter(Boolean),
+  });
 }
 
 export default async function ProductPage({ params }) {

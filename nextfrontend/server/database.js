@@ -33,7 +33,17 @@ const getMaintenanceUrl = (connectionString = getDatabaseUrl()) => {
 
 const quoteIdentifier = (value) => `"${String(value).replace(/"/g, '""')}"`;
 
-export const createAppPool = () => new Pool({ connectionString: getDatabaseUrl() });
+export const createAppPool = () => {
+  const configuredMax = Number.parseInt(process.env.PG_POOL_MAX || "20", 10);
+  const max = Number.isFinite(configuredMax) ? Math.min(50, Math.max(1, configuredMax)) : 20;
+
+  return new Pool({
+    connectionString: getDatabaseUrl(),
+    max,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+  });
+};
 
 export const ensureDatabaseExists = async () => {
   const connectionString = getDatabaseUrl();

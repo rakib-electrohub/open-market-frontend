@@ -1,11 +1,14 @@
 "use client";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Suspense } from "react";
+import { Suspense, useContext } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { PersistentToastProvider } from "@/components/ui/PersistentToast";
 import { queryClientInstance } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/AuthContext";
+import { Loader2 } from "lucide-react";
+import { StoreChromeContext } from "@/components/layout/StoreChromeContext";
+import StoreLoading from "@/components/layout/StoreLoading";
 import Home from "@/legacy-pages/Home";
 import Products from "@/legacy-pages/Products";
 import ProductDetail from "@/legacy-pages/ProductDetail";
@@ -51,15 +54,25 @@ import StaffDashboard from "@/legacy-pages/staff/StaffDashboard";
 const pages = { Home, Products, ProductDetail, Cart, Checkout, Orders, Wishlist, Account, Contact, FlashSales, FAQ, Login, Register, ForgotPassword, ReturnPolicy, PrivacyPolicy, Terms, ShippingInfo, SellerRegister, SellerDashboard, SellerProducts, SellerInventory, SellerChats, StorePage, AdminDashboard, AdminProducts, AdminOrders, AdminFlashSales, AdminCoupons, AdminAnalytics, AdminSellers, AdminBanners, AdminSiteSettings, AdminMessages, AdminReviews, AdminChats, AdminFAQ, AdminInventory, AdminUsers, AdminStaff, StaffDashboard };
 
 export default function LegacyPage({ page, initialData }) {
+  const storeChrome = useContext(StoreChromeContext);
   const Page = pages[page];
   if (!Page) return null;
+
+  const pageContent = (
+    <Suspense fallback={storeChrome
+      ? <StoreLoading />
+      : <div className="flex min-h-screen items-center justify-center bg-background" role="status" aria-label="Loading page"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+      <Page initialData={initialData} />
+    </Suspense>
+  );
+
+  if (storeChrome) return pageContent;
+
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
         <PersistentToastProvider>
-          <Suspense fallback={<div className="min-h-screen bg-background" />}>
-            <Page initialData={initialData} />
-          </Suspense>
+          {pageContent}
           <Toaster />
         </PersistentToastProvider>
       </QueryClientProvider>

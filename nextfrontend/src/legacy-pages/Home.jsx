@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiClient } from "@/api/apiClient";
+import { persistCart } from "@/utils/cart";
 import { usePersistentToast } from "@/components/ui/PersistentToast";
 import { buildWishlistItem } from "@/utils/wishlist";
 
@@ -9,9 +10,11 @@ import HeroBanner from "@/components/store/HeroBanner";
 import CategoryGrid from "@/components/store/CategoryGrid";
 import FlashSaleSection from "@/components/store/FlashSaleSection";
 import ProductSection from "@/components/store/ProductSection";
+import SEO from "@/components/SEO";
 import { Shield, Truck, RefreshCcw, Headphones } from "lucide-react";
 import AnimatedSection from "@/components/ui/AnimatedSection";
 import { useAppSettings } from "@/hooks/useAppSettings";
+import { buildOrganizationSchema, buildWebsiteSchema } from "@/lib/seo";
 
 const mergeUniqueProducts = (...lists) => {
   const seen = new Set();
@@ -77,7 +80,7 @@ export default function Home({ initialData }) {
       newCart = [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
     }
     setCart(newCart);
-    localStorage.setItem("cart", JSON.stringify(newCart));
+    persistCart(newCart);
     notify?.("Added to cart: " + product.name, "success");
   };
 
@@ -148,13 +151,37 @@ export default function Home({ initialData }) {
   const featured = products.filter(p => p.is_featured).slice(0, homeProductLimit);
   const newest = [...products].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, homeProductLimit);
   const trending = [...products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0)).slice(0, homeProductLimit);
+  const homepageStructuredData = [buildWebsiteSchema(), buildOrganizationSchema()];
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title="Open Market | Trusted Online Marketplace"
+        description="Shop top products, trending deals, and trusted seller picks on Open Market with fast delivery and secure checkout."
+        canonicalPath="/"
+        structuredData={homepageStructuredData}
+        image="/og-default.svg"
+      />
       <Navbar cart={cart} wishlistCount={wishlist.length} />
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-10">
         {/* Hero */}
         <HeroBanner banners={banners} />
+
+        <AnimatedSection animation="fade-up">
+          <div className="bg-white border border-border rounded-2xl p-5 sm:p-6 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] mb-3">
+                  Why shoppers choose us
+                </div>
+                <h1 className="font-poppins font-bold text-2xl sm:text-3xl text-foreground">Your trusted marketplace for smarter shopping</h1>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-xl">
+                Discover premium essentials, trending products, and verified sellers in one secure shopping destination built for speed, value, and confidence.
+              </p>
+            </div>
+          </div>
+        </AnimatedSection>
 
         {/* Trust badges */}
         <AnimatedSection animation="fade-up">
@@ -182,7 +209,7 @@ export default function Home({ initialData }) {
 
         {/* Categories */}
         <AnimatedSection animation="fade-up">
-          <CategoryGrid />
+          <CategoryGrid initialCategories={initialData?.categories || []} />
         </AnimatedSection>
 
         {/* Flash Sale */}

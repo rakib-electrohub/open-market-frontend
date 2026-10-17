@@ -11,14 +11,18 @@ export async function invalidateEntityCache(entity, record = {}) {
       tags.push(`product:${id}`);
       paths.push(`/product/${id}`);
     }
-    paths.push("/", "/products");
+    paths.push("/", "/products", "/sitemap.xml", "/robots.txt");
+  } else if (entity === "Seller") {
+    tags.push("sellers");
+    if (id) paths.push(`/store/${id}`);
+    paths.push("/sitemap.xml", "/robots.txt");
   } else if (entity === "Review") {
     tags.push("reviews");
     if (record.product_id) tags.push(`product:${record.product_id}:reviews`, `product:${record.product_id}`);
     if (record.product_id) paths.push(`/product/${record.product_id}`);
   } else if (entity === "Category") {
     tags.push("categories", "homepage", "products");
-    paths.push("/", "/products");
+    paths.push("/", "/products", "/sitemaps/static.xml", "/sitemap.xml");
   } else if (entity === "Banner") {
     tags.push("banners", "homepage");
     paths.push("/");

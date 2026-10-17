@@ -1,3 +1,5 @@
+import StoreShell from "@/components/layout/StoreShell";
+
 export default function StoreLayout({ children }) {
-  return children;
+  return <StoreShell>{children}</StoreShell>;
 }
