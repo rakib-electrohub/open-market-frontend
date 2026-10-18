@@ -33,8 +33,8 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage({ searchParams }) {
 	const params = await searchParams;
 	const page = Math.max(1, Number(params?.page) || 1);
-	const sort = isProductSort(params?.sort) ? params.sort : "popularity";
 	const searchTerm = typeof params?.search === "string" ? params.search : "";
+	const sort = isProductSort(params?.sort) ? params.sort : searchTerm.trim() ? "relevance" : "popularity";
 	const [productsPage, categories] = await Promise.all([
 		getProductsPage({
 			page,

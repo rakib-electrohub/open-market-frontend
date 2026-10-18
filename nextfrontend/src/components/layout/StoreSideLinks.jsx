@@ -10,6 +10,8 @@ export default function StoreSideLinks() {
   const settings = useAppSettings();
   const pathname = usePathname();
   const iotTechUrl = getSafeHttpUrl(settings.iottechbd_url ?? DEFAULT_IOTTECHBD_URL);
+  const developerCreditUrl = getSafeHttpUrl(settings.developer_credit_url ?? settings.iottechbd_url ?? DEFAULT_IOTTECHBD_URL);
+  const developerCreditText = String(settings.developer_credit_text || "Dev by IoT-TechBD").trim();
   const printingServiceUrl = getSafeHttpUrl(settings.printing_service_url);
   const [visibleSides, setVisibleSides] = useState({ left: false, right: false });
 
@@ -82,7 +84,7 @@ export default function StoreSideLinks() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", measureSpace);
     };
-  }, [iotTechUrl, pathname, printingServiceUrl]);
+  }, [developerCreditUrl, iotTechUrl, pathname, printingServiceUrl]);
 
   return (
     <>
@@ -107,9 +109,16 @@ export default function StoreSideLinks() {
 
       {visibleSides.right && (
         <aside aria-label="Business links" className="fixed right-0 top-1/2 z-40 flex -translate-y-1/2 flex-col items-end gap-1">
-          <span className="rounded-l-xl border border-r-0 border-grey-300 bg-green-600 px-1.5 py-3 text-[10px] font-semibold text-white shadow-lg [writing-mode:vertical-rl]">
-            <span className="inline-block rotate-180">Developed by IoT-TechBD</span>
-          </span>
+          {developerCreditUrl && developerCreditText && (
+            <a
+              href={developerCreditUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-l-xl border border-r-0 border-border bg-white px-2.5 py-4 text-xs font-semibold text-foreground shadow-lg transition-colors hover:bg-primary hover:text-white [writing-mode:vertical-rl]"
+            >
+              <span className="inline-block rotate-180">{developerCreditText}</span>
+            </a>
+          )}
           {iotTechUrl && (
             <a
               href={iotTechUrl}

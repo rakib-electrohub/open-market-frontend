@@ -129,7 +129,7 @@ export default function ProductCard({ product, onAddToCart, onAddToWishlist, isW
           onClick={() => onAddToCart?.(product)}
           disabled={product.stock === 0}
           size="sm"
-          className="w-full bg-primary hover:bg-primary/90 text-white text-xs h-8 disabled:opacity-60"
+          className="w-full bg-red-600 hover:bg-red-700 text-white text-xs h-8 disabled:opacity-60"
         >
           <ShoppingCart className="w-3 h-3 mr-1" />
           {product.stock === 0 ? "Out of Stock" : "Add to Cart"}

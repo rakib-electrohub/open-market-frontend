@@ -11,16 +11,17 @@ npm run dev
 
 The combined Next.js and marketplace server runs on `http://localhost:3000`. It initializes PostgreSQL, serves the `/api` contract, and hands storefront routes to Next.js. The application should be run from `nextfrontend`; the old Vite project is no longer part of the deployment.
 
-Optional environment variables:
+Required production environment variables:
 
 ```env
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-API_URL=http://localhost:4000
-REVALIDATE_SECRET=use-a-private-value-in-production
-PG_POOL_MAX=20
+NEXT_PUBLIC_SITE_URL=https://your-production-domain.example
+DATABASE_URL=postgresql://user:password@host:5432/openmarket
+REVALIDATE_SECRET=generate-a-long-random-secret
 ```
 
-`PG_POOL_MAX` is the maximum PostgreSQL connections for each running app process (default `20`, allowed `1`-`50`). Set it according to the database connection limit and the number of app instances; the combined pool sizes must stay below the database limit, leaving room for maintenance and other clients.
+`NEXT_PUBLIC_SITE_URL` must be the canonical public origin; leaving it unset makes metadata, robots.txt, and sitemap URLs point to localhost. `DATABASE_URL` must reach the production PostgreSQL database. `REVALIDATE_SECRET` protects the cache revalidation endpoint; in production, revalidation is disabled when this secret is missing. Set `INTERNAL_API_URL` only if server-side catalog and cache requests need an origin different from `NEXT_PUBLIC_SITE_URL`. `API_URL` is used by server-side auth lookups and should point to the deployed API origin when those lookups are used.
+
+`PG_POOL_MAX` is an optional maximum PostgreSQL connections setting for each running app process (default `20`, allowed `1`-`50`). Set it according to the database connection limit and the number of app instances; the combined pool sizes must stay below the database limit, leaving room for maintenance and other clients.
 
 ## Architecture
 

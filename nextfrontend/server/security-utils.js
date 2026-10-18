@@ -12,7 +12,7 @@ export const parseOrder = (order) => {
   if (numericFields.includes(field)) {
     return `NULLIF(data->>'${field}','')::numeric ${direction}`;
   }
-  const allowedTextFields = ['name', 'status', 'approval_status', 'category', 'seller_name', 'customer_email'];
+  const allowedTextFields = ['name', 'status', 'approval_status', 'category', 'seller_name', 'customer_email', 'flash_sale_end'];
   if (allowedTextFields.includes(field)) {
     return `data->>'${field}' ${direction}`;
   }

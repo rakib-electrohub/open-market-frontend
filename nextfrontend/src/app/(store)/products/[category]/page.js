@@ -34,8 +34,8 @@ export default async function CategoryProductsPage({ params, searchParams }) {
   const category = resolveCategoryFromSlug(categorySlug, await getCategories()) || "";
   const page = Math.max(1, Number(queryParams?.page) || 1);
   const subcategory = queryParams?.subcategory || "";
-  const sort = isProductSort(queryParams?.sort) ? queryParams.sort : "popularity";
   const searchTerm = typeof queryParams?.search === "string" ? queryParams.search : "";
+  const sort = isProductSort(queryParams?.sort) ? queryParams.sort : searchTerm.trim() ? "relevance" : "popularity";
   const filters = category
     ? {
         is_active: true,

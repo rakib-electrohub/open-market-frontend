@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiClient } from "@/api/apiClient";
 import { persistCart } from "@/utils/cart";
 import { usePersistentToast } from "@/components/ui/PersistentToast";
@@ -13,7 +13,8 @@ import CategoryGrid from "@/components/store/CategoryGrid";
 import FlashSaleSection from "@/components/store/FlashSaleSection";
 import ProductSection from "@/components/store/ProductSection";
 import SEO from "@/components/SEO";
-import { Shield, Printer, RefreshCcw, Headphones } from "lucide-react";
+import { BadgeCheck, Shield, Printer, Headphones } from "lucide-react";
+import { Link } from "@/lib/next-router";
 import AnimatedSection from "@/components/ui/AnimatedSection";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { buildOrganizationSchema, buildWebsiteSchema } from "@/lib/seo";
@@ -28,10 +29,52 @@ const mergeUniqueProducts = (...lists) => {
   });
 };
 
+const FLASH_PRODUCT_BATCH_SIZE = 25;
+const FLASH_PRODUCT_BATCH_LIMIT = 4;
+const isActiveFlashProduct = (product) =>
+  product.flash_sale_price &&
+  product.flash_sale_end &&
+  new Date(product.flash_sale_end) > new Date();
+
+async function fetchFlashProducts(offset = 0, targetCount = 5) {
+  const products = [];
+  let nextOffset = offset;
+  let hasMore = false;
+
+  for (let batch = 0; batch < FLASH_PRODUCT_BATCH_LIMIT && products.length < targetCount; batch += 1) {
+    const candidates = await apiClient.entities.Product.filter(
+      { is_active: true, approval_status: "approved" },
+      "-flash_sale_end",
+      FLASH_PRODUCT_BATCH_SIZE,
+      nextOffset
+    );
+    let consumed = candidates.length;
+    for (const [index, product] of candidates.entries()) {
+      if (isActiveFlashProduct(product)) {
+        products.push(product);
+        if (products.length === targetCount) {
+          consumed = index + 1;
+          break;
+        }
+      }
+    }
+    nextOffset += consumed;
+    hasMore = consumed < candidates.length || candidates.length === FLASH_PRODUCT_BATCH_SIZE;
+    if (products.length === targetCount) break;
+    if (!hasMore) break;
+  }
+
+  return { products: products.slice(0, targetCount), offset: nextOffset, hasMore };
+}
+
 export default function Home({ initialData }) {
   const hasInitialData = Boolean(initialData);
   const [products, setProducts] = useState(() => mergeUniqueProducts(initialData?.featured, initialData?.newest, initialData?.trending));
   const [flashProducts, setFlashProducts] = useState(() => mergeUniqueProducts(initialData?.flashProducts));
+  const [hasMoreFlashProducts, setHasMoreFlashProducts] = useState(() => Boolean(initialData?.flashProductsHasMore));
+  const [loadingMoreFlashProducts, setLoadingMoreFlashProducts] = useState(false);
+  const flashOffsetRef = useRef(initialData?.flashProductsOffset || 0);
+  const flashLoadInProgressRef = useRef(false);
   const [banners, setBanners] = useState(() => initialData?.banners || []);
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState("");
@@ -54,7 +97,7 @@ export default function Home({ initialData }) {
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved", is_featured: true }, "-created_date", homeProductLimit),
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-created_date", homeProductLimit),
       apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-sold_count", homeProductLimit),
-      apiClient.entities.Product.filter({ is_active: true, approval_status: "approved" }, "-flash_sale_end", homeProductLimit),
+      fetchFlashProducts(),
       apiClient.entities.Banner.filter({ is_active: true, position: "hero" }, "sort_order").catch(() => []),
       
       apiClient.auth.me().then(user => {
@@ -65,14 +108,34 @@ export default function Home({ initialData }) {
         });
       }).catch(() => [])
 
-    ]).then(([featuredProducts, newestProducts, trendingProducts, flashProducts, fetchedBanners, wish]) => {
+    ]).then(([featuredProducts, newestProducts, trendingProducts, fetchedFlashSale, fetchedBanners, wish]) => {
       setProducts(mergeUniqueProducts(featuredProducts, newestProducts, trendingProducts));
-      setFlashProducts(mergeUniqueProducts(flashProducts));
+      setFlashProducts(mergeUniqueProducts(fetchedFlashSale.products));
+      flashOffsetRef.current = fetchedFlashSale.offset;
+      setHasMoreFlashProducts(fetchedFlashSale.hasMore);
       setBanners(fetchedBanners);
       setWishlist(wish);
       setLoading(false);
     });
   }, [hasInitialData, homeProductLimit]);
+
+  const handleLoadMoreFlashProducts = async () => {
+    if (!hasMoreFlashProducts || flashLoadInProgressRef.current) return;
+    flashLoadInProgressRef.current = true;
+    setLoadingMoreFlashProducts(true);
+
+    try {
+      const fetchedFlashSale = await fetchFlashProducts(flashOffsetRef.current);
+      flashOffsetRef.current = fetchedFlashSale.offset;
+      setFlashProducts((current) => mergeUniqueProducts(current, fetchedFlashSale.products));
+      setHasMoreFlashProducts(fetchedFlashSale.hasMore);
+    } catch (error) {
+      notify?.(error.message || "Could not load more flash sale products", "destructive");
+    } finally {
+      flashLoadInProgressRef.current = false;
+      setLoadingMoreFlashProducts(false);
+    }
+  };
 
   const handleAddToCart = (product) => {
     const existing = cart.find(c => c.product_id === product.id);
@@ -155,7 +218,7 @@ export default function Home({ initialData }) {
   const featured = products.filter(p => p.is_featured).slice(0, homeProductLimit);
   const newest = [...products].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, homeProductLimit);
   const trending = [...products].sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0)).slice(0, homeProductLimit);
-  const homepageStructuredData = [buildWebsiteSchema(), buildOrganizationSchema()];
+  const homepageStructuredData = [buildWebsiteSchema(), buildOrganizationSchema(initialData?.settings || settings)];
 
   return (
     <div className="min-h-screen bg-background">
@@ -176,12 +239,12 @@ export default function Home({ initialData }) {
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] mb-3">
-                  Why shoppers choose us
+                  {settings.home_intro_eyebrow ?? "Why shoppers choose us"}
                 </div>
-                <h1 className="font-poppins font-bold text-2xl sm:text-3xl text-foreground">Your trusted marketplace for smarter shopping</h1>
+                <h1 className="font-poppins font-bold text-2xl sm:text-3xl text-foreground">{settings.home_intro_title ?? "Your trusted marketplace for smarter shopping"}</h1>
               </div>
               <p className="text-sm text-muted-foreground max-w-xl">
-                Discover premium essentials, trending products, and verified sellers in one secure shopping destination built for speed, value, and confidence.
+                {settings.home_intro_description ?? "Discover premium essentials, trending products, and verified sellers in one secure shopping destination built for speed, value, and confidence."}
               </p>
             </div>
           </div>
@@ -193,8 +256,19 @@ export default function Home({ initialData }) {
             {[
               { icon: Printer, label: settings.home_benefit_1_title ?? "3D Printing Service", sub: settings.home_benefit_1_description ?? "Custom 3D printing solutions", href: printingServiceUrl },
               { icon: Shield, label: settings.home_benefit_2_title ?? "Secure Payment", sub: settings.home_benefit_2_description ?? "100% protected" },
-              { icon: RefreshCcw, label: settings.home_benefit_3_title ?? "Easy Returns", sub: settings.home_benefit_3_description ?? "7-day return policy" },
-              { icon: Headphones, label: settings.home_benefit_4_title ?? "24/7 Support", sub: settings.home_benefit_4_description ?? "Dedicated support team" },
+              {
+                icon: BadgeCheck,
+                label: settings.home_benefit_3_title === "Easy Returns" ? "Product Tested" : settings.home_benefit_3_title || "Product Tested",
+                sub: settings.home_benefit_3_description === "7-day return policy"
+                  ? "Every product is tested before delivery"
+                  : settings.home_benefit_3_description || "Every product is tested before delivery",
+              },
+              {
+                icon: Headphones,
+                label: settings.home_benefit_4_title === "24/7 Support" ? "Contact Us" : settings.home_benefit_4_title || "Contact Us",
+                sub: settings.contact_hours ? `Available ${settings.contact_hours}` : "Contact us during business hours",
+                href: "/contact",
+              },
             ].map(({ icon: Icon, label, sub, href }, i) => {
               const content = (
                 <div className="bg-white rounded-xl p-4 flex items-center gap-3 border border-border hover:border-primary/30 transition-colors h-full">
@@ -210,10 +284,12 @@ export default function Home({ initialData }) {
 
               return (
                 <AnimatedSection key={label} animation="scale-up" delay={i * 80}>
-                  {href ? (
+                  {href && href !== "/contact" ? (
                     <a href={href} target="_blank" rel="noopener noreferrer" className="block h-full">
                       {content}
                     </a>
+                  ) : href === "/contact" ? (
+                    <Link to="/contact" className="block h-full">{content}</Link>
                   ) : content}
                 </AnimatedSection>
               );
@@ -228,7 +304,15 @@ export default function Home({ initialData }) {
 
         {/* Flash Sale */}
         <AnimatedSection animation="fade-up">
-          <FlashSaleSection products={flashProducts} onAddToCart={handleAddToCart} onAddToWishlist={handleAddToWishlist} wishlist={wishlist} />
+          <FlashSaleSection
+            products={flashProducts}
+            hasMoreProducts={hasMoreFlashProducts}
+            loadingMoreProducts={loadingMoreFlashProducts}
+            onLoadMoreProducts={handleLoadMoreFlashProducts}
+            onAddToCart={handleAddToCart}
+            onAddToWishlist={handleAddToWishlist}
+            wishlist={wishlist}
+          />
         </AnimatedSection>
 
         {/* Featured */}

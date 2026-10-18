@@ -15,6 +15,15 @@ body {
 h1 { max-width: 760px; margin: 18px 0; font-size: clamp(3rem, 8vw, 6.7rem); line-height: 0.94; font-weight: 500; }
 .lede { max-width: 560px; color: var(--muted); font: 1.15rem/1.6 Arial, sans-serif; }
 .primary-link { display: inline-block; margin-top: 24px; padding: 13px 18px; background: var(--accent); color: white; text-decoration: none; font: 700 0.9rem Arial, sans-serif; }
+.marketplace-hero-glow {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: min(38%, 340px);
+  height: 22%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 85% 100%, rgba(16, 185, 129, 0.24), rgba(16, 185, 129, 0.08) 42%, transparent 76%);
+}
 .content, .auth-layout { max-width: 920px; margin: 0 auto; padding: 10vh 24px; }
 .page-intro { max-width: 760px; }
 .site-header, .site-footer { display: flex; justify-content: space-between; gap: 24px; padding: 22px 24px; border-bottom: 1px solid #d9ddd2; font: 700 0.84rem Arial, sans-serif; }

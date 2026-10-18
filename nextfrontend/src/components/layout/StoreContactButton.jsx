@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Facebook, MessageCircle, Phone, X } from "lucide-react";
+import { Facebook, MessageCircle, Phone, PhoneCall, X } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { getSafeHttpUrl } from "@/utils/urls";
 
@@ -11,6 +11,7 @@ const digitsOnly = (value) => String(value || "").replace(/\D/g, "");
 export default function StoreContactButton() {
   const settings = useAppSettings();
   const pathname = usePathname();
+  const isProductDetail = pathname?.startsWith("/product/");
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState(null);
   const [viewportWidth, setViewportWidth] = useState(0);
@@ -104,7 +105,9 @@ export default function StoreContactButton() {
     <div
       className={position
         ? "fixed z-[60]"
-        : `fixed right-4 z-[60] ${pathname.startsWith("/product/") ? "bottom-20" : "bottom-4"}`}
+        : isProductDetail
+          ? "fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] lg:bottom-4"
+        : "fixed right-4 bottom-4 z-[60]"}
       style={position ? { left: position.x, top: position.y } : undefined}
     >
       {isOpen && (
@@ -155,9 +158,9 @@ export default function StoreContactButton() {
           if (dragged.current) return;
           setIsOpen((open) => !open);
         }}
-        className="flex h-14 w-14 touch-none items-center justify-center rounded-full bg-primary text-white shadow-xl transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        className="flex h-14 w-14 touch-none items-center justify-center rounded-full bg-emerald-600 text-white shadow-[0_0_20px_rgba(16,185,129,0.55),0_12px_28px_rgba(0,0,0,0.22)] transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
       >
-        {isOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
+        {isOpen ? <X className="h-6 w-6" /> : <PhoneCall className="h-6 w-6" />}
       </button>
     </div>
   );

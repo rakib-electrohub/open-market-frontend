@@ -117,14 +117,25 @@ export function buildWebsiteSchema() {
   };
 }
 
-export function buildOrganizationSchema() {
+export function buildOrganizationSchema(settings = {}) {
+  const sameAs = [settings.facebook_url, settings.instagram_url, settings.youtube_url]
+    .map((value) => {
+      try {
+        const url = new URL(String(value || ""));
+        return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: SITE_NAME,
     url: SITE_URL,
     logo: `${SITE_URL}/og-default.svg`,
-    sameAs: ["https://www.facebook.com", "https://www.instagram.com", "https://www.x.com"],
+    ...(sameAs.length ? { sameAs } : {}),
   };
 }
 

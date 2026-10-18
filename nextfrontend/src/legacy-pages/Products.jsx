@@ -15,7 +15,7 @@ import { SlidersHorizontal, X, Loader2 } from "lucide-react";
 import { useAppSettings } from "@/hooks/useAppSettings";
 import { buildWishlistItem } from "@/utils/wishlist";
 import { getCategoriesFromSettings, getMainCategories, getSubCategories, slugifyCategory } from "@/utils/categories";
-import { getProductSortOrder, PRODUCT_SORT_OPTIONS } from "@/utils/productSorting";
+import { getProductSortOrder, isProductSort, PRODUCT_SORT_OPTIONS } from "@/utils/productSorting";
 const PRODUCTS_PAGE_SIZE = 30;
 
 const mergeUniqueProducts = (...lists) => {
@@ -41,6 +41,7 @@ export default function Products({ initialData }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(() => initialData?.hasMore ?? true);
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
+  const location = useLocation();
   const loadMoreRef = useRef(null);
   const loadMoreInProgressRef = useRef(false);
   const listingStateRef = useRef(null);
@@ -49,7 +50,13 @@ export default function Products({ initialData }) {
   const maxPriceFilter = parseInt(settings.max_price_filter, 10) || 50000;
   const priceFilterDefaultEnabled = settings.price_filter_enabled === "true";
 
-  const [sort, setSort] = useState(() => initialData?.sort || "popularity");
+  const [sort, setSort] = useState(() => {
+    if (initialData?.sort) return initialData.sort;
+    const params = new URLSearchParams(location.search);
+    const requestedSort = params.get("sort");
+    if (isProductSort(requestedSort)) return requestedSort;
+    return params.get("search")?.trim() ? "relevance" : "popularity";
+  });
   const [selectedMainCategory, setSelectedMainCategory] = useState(initialData?.category || "");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
   const [categoryOptions, setCategoryOptions] = useState(() => initialData?.categories || []);
@@ -74,7 +81,6 @@ export default function Products({ initialData }) {
   useEffect(() => {
     setPriceFilterEnabled(settings.price_filter_enabled === "true");
   }, [settings.price_filter_enabled]);
-  const location = useLocation();
 
   const urlParams = new URLSearchParams(location.search);
   const searchQuery = urlParams.get("search") || "";
@@ -304,8 +310,7 @@ export default function Products({ initialData }) {
   const handleSortChange = (nextSort) => {
     const params = new URLSearchParams(location.search);
     params.delete("page");
-    if (nextSort === "popularity") params.delete("sort");
-    else params.set("sort", nextSort);
+    params.set("sort", nextSort);
     const query = params.toString();
     navigate(`${location.pathname}${query ? `?${query}` : ""}`);
   };

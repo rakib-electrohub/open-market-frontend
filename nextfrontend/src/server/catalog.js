@@ -28,6 +28,39 @@ async function filterProducts(query, order, limit, offset = 0, searchTerm = "") 
   )) || [];
 }
 
+async function getHomepageFlashProducts() {
+  const batchSize = 25;
+  const maxInitialBatches = 4;
+  const query = { is_active: true, approval_status: "approved" };
+  const products = [];
+  let offset = 0;
+  let hasMore = false;
+
+  for (let batch = 0; batch < maxInitialBatches && products.length < 5; batch += 1) {
+    const candidates = await filterProducts(query, "-flash_sale_end", batchSize, offset);
+    let consumed = candidates.length;
+    for (const [index, product] of candidates.entries()) {
+      if (
+        product.flash_sale_price &&
+        product.flash_sale_end &&
+        new Date(product.flash_sale_end) > new Date()
+      ) {
+        products.push(product);
+        if (products.length === 5) {
+          consumed = index + 1;
+          break;
+        }
+      }
+    }
+    offset += consumed;
+    hasMore = consumed < candidates.length || candidates.length === batchSize;
+    if (products.length === 5) break;
+    if (!hasMore) break;
+  }
+
+  return { products: products.slice(0, 5), offset, hasMore };
+}
+
 const getCachedHomepageData = unstable_cache(async (limit = 10) => {
   const settings = await readApi("/entities/SiteSettings/list", {}, ["settings"]);
 
@@ -37,11 +70,11 @@ const getCachedHomepageData = unstable_cache(async (limit = 10) => {
   });
 
   const configuredLimit = Math.min(20, Math.max(1, Number(settingsMap.home_products_limit) || limit));
-  const [featured, newest, trending, flashProducts, banners, categories] = await Promise.all([
+  const [featured, newest, trending, flashSale, banners, categories] = await Promise.all([
     filterProducts({ is_active: true, approval_status: "approved", is_featured: true }, "-created_date", configuredLimit),
     filterProducts({ is_active: true, approval_status: "approved" }, "-created_date", configuredLimit),
     filterProducts({ is_active: true, approval_status: "approved" }, "-sold_count", configuredLimit),
-    filterProducts({ is_active: true, approval_status: "approved" }, "-flash_sale_end", configuredLimit),
+    getHomepageFlashProducts(),
     readApi("/entities/Banner/filter", { method: "POST", body: JSON.stringify({ query: { is_active: true, position: "hero" }, order: "sort_order" }) }, ["banners"]),
     readApi("/entities/Category/list?order=-created_date&limit=200", {}, ["categories"]),
   ]);
@@ -50,13 +83,15 @@ const getCachedHomepageData = unstable_cache(async (limit = 10) => {
     featured: featured || [],
     newest: newest || [],
     trending: trending || [],
-    flashProducts: flashProducts || [],
+    flashProducts: flashSale.products,
+    flashProductsOffset: flashSale.offset,
+    flashProductsHasMore: flashSale.hasMore,
     banners: banners || [],
     categories: categories || [],
     settings: settingsMap,
     limit: configuredLimit,
   };
-}, ["homepage-data"], { revalidate: cacheSeconds, tags: ["homepage", "products", "banners", "settings", "categories"] });
+}, ["homepage-data-v3"], { revalidate: cacheSeconds, tags: ["homepage", "products", "banners", "settings", "categories"] });
 
 export const getHomepageData = cache((limit = 10) => getCachedHomepageData(limit));
 

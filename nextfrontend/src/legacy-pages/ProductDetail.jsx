@@ -9,7 +9,7 @@ import SEO from "@/components/SEO";
 import FlashSaleTimer from "@/components/store/FlashSaleTimer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Star, ShoppingCart, Heart, Truck, Shield, RefreshCcw, ChevronRight, Minus, Plus, ZoomIn, X, ChevronLeft, AlertTriangle, Video } from "lucide-react";
+import { Star, ShoppingCart, Heart, Truck, Shield, BadgeCheck, ChevronRight, Minus, Plus, ZoomIn, X, ChevronLeft, AlertTriangle, Video } from "lucide-react";
 import ReviewForm from "@/components/store/ReviewForm";
 import ProductChatBox from "@/components/store/ProductChatBox";
 import FallbackImage from "@/components/ui/FallbackImage";
@@ -381,13 +381,13 @@ export default function ProductDetail({ initialData }) {
 
               {/* Actions */}
               <div className="mb-6 hidden flex-wrap items-center gap-3 lg:flex">
-                <Button onClick={handleAddToCart} disabled={product.stock === 0} className="flex-1 bg-primary hover:bg-primary/90 h-12 text-base font-semibold">
+                <Button onClick={handleAddToCart} disabled={product.stock === 0} className="flex-1 bg-red-600 hover:bg-red-700 h-12 text-base font-semibold">
                   <ShoppingCart className="w-5 h-5 mr-2" /> Add to Cart
                 </Button>
-                <Button variant="secondary" onClick={handleBuyNow} disabled={product.stock === 0} size="sm" className="h-10 px-4">
+                <Button onClick={handleBuyNow} disabled={product.stock === 0} className="h-12 px-5 bg-emerald-600 text-white hover:bg-emerald-700">
                   Buy
                 </Button>
-                <Button variant="outline" onClick={handleWishlist} className={`h-12 px-4 ${isWishlisted ? "border-primary text-primary" : ""}`}>
+                <Button variant="outline" onClick={handleWishlist} className={`h-12 w-12 px-0 ${isWishlisted ? "border-primary text-primary" : ""}`}>
                   <Heart className={`w-5 h-5 ${isWishlisted ? "fill-primary text-primary" : ""}`} />
                 </Button>
               </div>
@@ -431,7 +431,7 @@ export default function ProductDetail({ initialData }) {
 
               {/* Trust */}
               <div className="grid grid-cols-3 gap-3 pt-4 border-t border-border">
-                {[{ icon: Truck, label: "Fast Delivery" }, { icon: Shield, label: "Secure Payment" }, { icon: RefreshCcw, label: "Easy Returns" }].map(({ icon: Icon, label }) => (
+                {[{ icon: Truck, label: "Fast Delivery" }, { icon: Shield, label: "Secure Payment" }, { icon: BadgeCheck, label: "Product Tested" }].map(({ icon: Icon, label }) => (
                   <div key={label} className="flex flex-col items-center gap-1 text-center">
                     <Icon className="w-5 h-5 text-primary" />
                     <span className="text-xs text-muted-foreground">{label}</span>
@@ -501,16 +501,15 @@ export default function ProductDetail({ initialData }) {
             onClick={handleAddToCart}
             disabled={product.stock === 0}
             title="Add to Cart"
-            className="h-11 min-w-0 flex-1 gap-1 bg-primary px-2 text-xs font-semibold hover:bg-primary/90 min-[380px]:text-sm"
+            className="h-11 min-w-0 flex-1 gap-1 bg-red-600 px-2 text-xs font-semibold hover:bg-red-700 min-[380px]:text-sm"
           >
             <ShoppingCart className="h-4 w-4 shrink-0" />
             <span>Add<span className="hidden min-[380px]:inline"> to Cart</span></span>
           </Button>
           <Button
-            variant="secondary"
             onClick={handleBuyNow}
             disabled={product.stock === 0}
-            className="h-11 shrink-0 px-2.5 text-xs"
+            className="h-11 shrink-0 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-700"
           >
             Buy
           </Button>

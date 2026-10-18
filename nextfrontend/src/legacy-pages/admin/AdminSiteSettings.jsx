@@ -27,20 +27,25 @@ const DEFAULT_SETTINGS = {
   contact_email: "support@openmarketbd.com",
   contact_address: "Dhaka, Bangladesh",
   iottechbd_url: "https://iottechbd.com",
+  developer_credit_text: "Developed by IoT-TechBD",
+  developer_credit_url: "https://iottechbd.com",
   printing_service_url: "",
   facebook_url: "",
   instagram_url: "",
   youtube_url: "",
   website_url: "",
   announcement_text: "🎉 Free delivery on orders above ৳999 | Cash on Delivery Available Nationwide",
+  home_intro_eyebrow: "Why shoppers choose us",
+  home_intro_title: "Your trusted marketplace for smarter shopping",
+  home_intro_description: "Discover premium essentials, trending products, and verified sellers in one secure shopping destination built for speed, value, and confidence.",
   home_benefit_1_title: "3D Printing Service",
   home_benefit_1_description: "Custom 3D printing solutions",
   home_benefit_2_title: "Secure Payment",
   home_benefit_2_description: "100% protected",
-  home_benefit_3_title: "Easy Returns",
-  home_benefit_3_description: "7-day return policy",
-  home_benefit_4_title: "24/7 Support",
-  home_benefit_4_description: "Dedicated support team",
+  home_benefit_3_title: "Product Tested",
+  home_benefit_3_description: "Every product is tested before delivery",
+  home_benefit_4_title: "Contact Us",
+  home_benefit_4_description: "",
   return_policy: "We offer a 7-day return policy for all products. Items must be in original condition.",
   privacy_policy: "We respect your privacy. Your personal information is kept secure and never shared.",
   terms_conditions: "By using Open Market BD, you agree to our terms and conditions.",
@@ -242,6 +247,7 @@ export default function AdminSiteSettings() {
     const invalidLink = keys.find((key) =>
       [
         "iottechbd_url",
+        "developer_credit_url",
         "printing_service_url",
         "whatsapp_url",
         "imo_url",
@@ -638,6 +644,7 @@ export default function AdminSiteSettings() {
   const TAB_KEYS = {
     general: [
       "store_name", "store_tagline", "store_logo", "announcement_text", "home_products_limit",
+      "home_intro_eyebrow", "home_intro_title", "home_intro_description",
       "home_benefit_1_title", "home_benefit_1_description",
       "home_benefit_2_title", "home_benefit_2_description",
       "home_benefit_3_title", "home_benefit_3_description",
@@ -647,6 +654,7 @@ export default function AdminSiteSettings() {
       "contact_phone", "contact_hours", "whatsapp_number", "whatsapp_url",
       "imo_number", "imo_url", "facebook_messenger_url", "contact_email",
       "contact_address", "website_url", "iottechbd_url", "printing_service_url",
+      "developer_credit_text", "developer_credit_url",
     ],
     social: ["facebook_url", "instagram_url", "youtube_url"],
     policies: ["return_policy", "privacy_policy", "terms_conditions", "shipping_info"],
@@ -704,6 +712,15 @@ export default function AdminSiteSettings() {
                   className="bg-gray-800 border-gray-700 text-white"
                 />
               </div>
+              <div className="border-t border-gray-800 pt-4 space-y-3">
+                <div>
+                  <h3 className="text-gray-200 text-sm font-semibold">Homepage Introduction</h3>
+                  <p className="text-gray-500 text-xs mt-1">Edit the eyebrow, headline, and description shown below the homepage banner. The storefront layout remains unchanged.</p>
+                </div>
+                <Field label="Eyebrow" name="home_intro_eyebrow" placeholder="Why shoppers choose us" />
+                <Field label="Headline" name="home_intro_title" placeholder="Your trusted marketplace for smarter shopping" />
+                <TextArea label="Description" name="home_intro_description" rows={3} />
+              </div>
               <div className="border-t border-gray-800 pt-4 space-y-4">
                 <div>
                   <h3 className="text-gray-200 text-sm font-semibold">Homepage Benefit Cards</h3>
@@ -712,7 +729,11 @@ export default function AdminSiteSettings() {
                 {[1, 2, 3, 4].map((index) => (
                   <div key={index} className="grid gap-3 sm:grid-cols-2">
                     <Field label={`Benefit ${index} Title`} name={`home_benefit_${index}_title`} placeholder={`Benefit ${index} title`} />
-                    <Field label={`Benefit ${index} Description`} name={`home_benefit_${index}_description`} placeholder={`Benefit ${index} description`} />
+                    {index === 4 ? (
+                      <p className="self-end pb-2 text-xs text-gray-500">The Contact Us card displays Contact Availability Hours from Contact settings.</p>
+                    ) : (
+                      <Field label={`Benefit ${index} Description`} name={`home_benefit_${index}_description`} placeholder={`Benefit ${index} description`} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -735,6 +756,8 @@ export default function AdminSiteSettings() {
               <Field label="Address" name="contact_address" icon={MapPin} placeholder="Dhaka, Bangladesh" />
               <Field label="Website URL" name="website_url" icon={Globe} placeholder="https://openmarketbd.com" />
               <Field label="IoT-TechBD Website URL" name="iottechbd_url" icon={Globe} type="url" placeholder="https://iottechbd.com" />
+              <Field label="Developer Credit Button Text" name="developer_credit_text" placeholder="Developed by IoT-TechBD" />
+              <Field label="Developer Credit Button URL" name="developer_credit_url" icon={Globe} type="url" placeholder="https://iottechbd.com" />
               <div>
                 <Field label="3D Printing Service URL" name="printing_service_url" icon={Globe} type="url" placeholder="https://iottechbd.com/3d-printing" />
                 <p className="mt-1 text-xs text-gray-500">Leave blank to hide the 3D Printing shortcut from the store.</p>
