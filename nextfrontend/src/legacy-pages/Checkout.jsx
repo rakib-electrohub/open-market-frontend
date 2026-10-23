@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
 import { persistCart } from "@/utils/cart";
+import { getCartItemKey } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
 import { usePersistentToast } from "@/components/ui/PersistentToast";
 import { useAppSettings } from "@/hooks/useAppSettings";
@@ -14,7 +15,7 @@ import Footer from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CheckCircle2, Loader2, ChevronLeft } from "lucide-react";
+import { CheckCircle2, Loader2, ChevronLeft, Store, Truck } from "lucide-react";
 
 const PAYMENT_METHODS = [
   { value: "cod", label: "Cash on Delivery", icon: "💵", desc: "Pay when you receive" },
@@ -23,6 +24,7 @@ const PAYMENT_METHODS = [
   { value: "rocket", label: "Rocket", icon: "🚀", desc: "DBBL mobile banking" },
   { value: "bank", label: "Bank Transfer", icon: "🏦", desc: "Direct bank transfer" },
 ];
+const EMPTY_CART = [];
 
 export default function Checkout() {
   const { state } = useLocation();
@@ -30,9 +32,24 @@ export default function Checkout() {
   const { toast } = useToast();
   const notify = usePersistentToast();
   const settings = useAppSettings();
-  const { cart = [], discount = 0, coupon } = state || {};
+  const storePickupEnabled = settings.store_pickup_enabled === true
+    || String(settings.store_pickup_enabled).toLowerCase() === "true";
+  const { cart: navigationCart, discount = 0, coupon } = state || {};
   const directBuyItem = state?.directBuy;
-  const checkoutItems = directBuyItem ? [directBuyItem] : cart;
+  const [storedCart, setStoredCart] = useState(EMPTY_CART);
+  useEffect(() => {
+    if (navigationCart !== undefined || directBuyItem) return;
+    try {
+      const savedCart = JSON.parse(window.localStorage.getItem("cart") || "[]");
+      setStoredCart(Array.isArray(savedCart) ? savedCart : EMPTY_CART);
+    } catch {
+      setStoredCart(EMPTY_CART);
+    }
+  }, [navigationCart, directBuyItem]);
+  const cart = navigationCart ?? storedCart;
+  const checkoutItems = useMemo(() => directBuyItem ? [directBuyItem] : cart, [directBuyItem, cart]);
+  const adminPickupAddress = String(settings.admin_pickup_address || "").trim();
+  const adminPickupStoreName = String(settings.store_name || "Open Market BD").trim();
 
   // Checkout flow state
   const [checkoutStep, setCheckoutStep] = useState(1); // 1=Shipping, 2=Payment, 3=Confirm
@@ -40,7 +57,9 @@ export default function Checkout() {
   // Form & delivery
   const [shippingFee, setShippingFee] = useState(60);
   const [deliveryOption, setDeliveryOption] = useState("default");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState("delivery");
   const [deliveryZoneInfo, setDeliveryZoneInfo] = useState(null);
+  const [pickupData, setPickupData] = useState({ key: "", locations: [], productSellers: {} });
 
   const [form, setForm] = useState({
     name: "",
@@ -56,6 +75,171 @@ export default function Checkout() {
     office_time: "",
   });
   const [authenticatedUser, setAuthenticatedUser] = useState(null);
+
+  const checkoutItemKey = `${checkoutItems.map((item) => `${item.product_id || item.product_name}:${item.seller_id || ""}`).join("|")}|${storePickupEnabled}|${adminPickupAddress}|${adminPickupStoreName}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPickupLocations = async () => {
+      if (!checkoutItems.length) return;
+      try {
+        const itemsWithProduct = await Promise.all(checkoutItems.map(async (item) => {
+          if (!item.product_id) {
+            return { ...item, store_pickup_enabled: false, pickup_reason: "This cart item has no product record." };
+          }
+          try {
+            const product = await apiClient.entities.Product.get(item.product_id);
+            return {
+              ...item,
+              seller_id: product.seller_id ? String(product.seller_id) : "",
+              seller_name: product.seller_name,
+              store_pickup_enabled: product.seller_id
+                ? undefined
+                : product.store_pickup_enabled === false
+                  || String(product.store_pickup_enabled).toLowerCase() === "false"
+                  ? false
+                  : true,
+            };
+          } catch (error) {
+            console.error(`Could not load pickup settings for product ${item.product_id}:`, error);
+            return {
+              ...item,
+              store_pickup_enabled: false,
+              pickup_reason: `Could not verify pickup settings for ${item.product_name || "a product"}.`,
+            };
+          }
+        }));
+        const sellerIds = [...new Set(itemsWithProduct
+          .map((item) => item.seller_id)
+          .filter(Boolean)
+          .map(String))];
+        const sellers = await Promise.all(sellerIds.map(async (sellerId) => {
+          try {
+            return await apiClient.entities.Seller.get(sellerId);
+          } catch (error) {
+            console.error(`Could not load pickup location for seller ${sellerId}:`, error);
+            return null;
+          }
+        }));
+        const sellersById = new Map(sellers.filter(Boolean).map((seller) => [String(seller.id), seller]));
+        const pickupItems = itemsWithProduct.map((item) => {
+          if (!item.seller_id) {
+            if (!item.store_pickup_enabled) {
+              return {
+                ...item,
+                pickup_location: null,
+                pickup_reason: `Pickup is turned off for ${item.product_name || "this admin product"}. Enable it in Admin > Products.`,
+              };
+            }
+            return storePickupEnabled && adminPickupAddress
+              ? {
+                  ...item,
+                  store_pickup_enabled: true,
+                  pickup_location: { id: "admin-store", store_name: adminPickupStoreName, address: adminPickupAddress },
+                  pickup_reason: "",
+                }
+              : {
+                  ...item,
+                  store_pickup_enabled: storePickupEnabled,
+                  pickup_location: null,
+                  pickup_reason: !storePickupEnabled
+                    ? "Store pickup is disabled by the marketplace admin."
+                    : "Add the admin product pickup address in Admin > Site Settings > General.",
+                };
+          }
+
+          const seller = sellersById.get(item.seller_id);
+          if (!seller) {
+            return {
+              ...item,
+              pickup_location: null,
+              pickup_reason: `Could not verify the pickup address for ${item.seller_name || "this seller"}.`,
+            };
+          }
+          const sellerPickupEnabled = seller.store_pickup_enabled === true
+            || String(seller.store_pickup_enabled).toLowerCase() === "true";
+          if (!sellerPickupEnabled) {
+            return {
+              ...item,
+              store_pickup_enabled: false,
+              pickup_location: null,
+              pickup_reason: `Store pickup is disabled by ${seller.store_name || "this seller"}.`,
+            };
+          }
+          if (seller.status !== "approved") {
+            return {
+              ...item,
+              pickup_location: null,
+              pickup_reason: `${seller.store_name || "This seller"} must be approved before pickup can be offered.`,
+            };
+          }
+          if (!String(seller.address || "").trim()) {
+            return {
+              ...item,
+              pickup_location: null,
+              pickup_reason: `Add a pickup address for ${seller.store_name || "this seller"} in Admin > Sellers.`,
+            };
+          }
+
+          return {
+            ...item,
+            store_pickup_enabled: true,
+            pickup_location: {
+              id: item.seller_id,
+              store_name: seller.store_name || "Seller store",
+              address: String(seller.address).trim(),
+            },
+            pickup_reason: "",
+          };
+        });
+        if (!cancelled) {
+          setPickupData({
+            key: checkoutItemKey,
+            productSellers: Object.fromEntries(pickupItems
+              .filter((item) => item.product_id)
+              .map((item) => [item.product_id, {
+                seller_id: item.seller_id ? String(item.seller_id) : "",
+                seller_name: item.seller_name || "",
+                store_pickup_enabled: item.store_pickup_enabled,
+                pickup_location: item.pickup_location,
+                pickup_reason: item.pickup_reason,
+              }])),
+            locations: pickupItems.map((item) => item.pickup_location).filter(Boolean)
+              .filter((location, index, locations) => locations.findIndex((entry) => entry.id === location.id) === index),
+          });
+        }
+      } catch (error) {
+        console.error("Could not load store pickup locations:", error);
+        if (!cancelled) setPickupData({ key: checkoutItemKey, locations: [], productSellers: {} });
+      }
+    };
+
+    loadPickupLocations();
+    return () => { cancelled = true; };
+  }, [checkoutItems, checkoutItemKey, adminPickupAddress, adminPickupStoreName, storePickupEnabled]);
+
+  const pickupLocationsLoading = checkoutItems.length > 0 && pickupData.key !== checkoutItemKey;
+  const pickupLocations = pickupData.key === checkoutItemKey ? pickupData.locations : [];
+  const resolvedProductSellers = pickupData.key === checkoutItemKey ? pickupData.productSellers : {};
+  const resolvedCheckoutItems = checkoutItems.map((item) => ({
+    ...item,
+    ...(resolvedProductSellers[item.product_id] || {}),
+  }));
+  const availablePickupLocations = [
+    ...pickupLocations,
+    ...resolvedCheckoutItems.map((item) => item.pickup_location).filter(Boolean),
+  ].filter((location, index, locations) => locations.findIndex((entry) => entry.id === location.id) === index);
+  const pickupSelectable = checkoutItems.length > 0 && storePickupEnabled;
+  const pickupAvailable = checkoutItems.length > 0
+    && storePickupEnabled
+    && resolvedCheckoutItems.every((item) => item.store_pickup_enabled && Boolean(item.pickup_location?.address));
+  const pickupUnavailableReasons = !storePickupEnabled
+    ? ["Store pickup is disabled. An admin can enable it in Admin > Site Settings > General."]
+    : checkoutItems.length === 0
+      ? ["Add a product to your cart before choosing store pickup."]
+      : [...new Set(resolvedCheckoutItems
+      .filter((item) => !item.store_pickup_enabled || !item.pickup_location?.address)
+      .map((item) => item.pickup_reason || `Pickup is unavailable for ${item.product_name || "a product"}; check its product pickup setting and store address.`))];
 
   // Load user data
   useEffect(() => {
@@ -131,12 +315,15 @@ export default function Checkout() {
     }));
   }, [deliveryLocations]);
 
-  const orderedItems = checkoutItems;
+  const orderedItems = resolvedCheckoutItems;
   const subtotal = orderedItems.reduce((s, i) => s + i.price * i.quantity, 0);
-  const total = Math.max(0, subtotal - discount + shippingFee);
+  const effectiveShippingFee = fulfillmentMethod === "pickup" ? 0 : shippingFee;
+  const total = Math.max(0, subtotal - discount + effectiveShippingFee);
 
   // Calculate shipping fee based on delivery_locations_json (Division -> District -> Area)
   useEffect(() => {
+    if (fulfillmentMethod === "pickup") return;
+
     const defaultFeeFallback = 60;
     const isFastDelivery = deliveryOption === "fast";
     const getFee = (entry) => {
@@ -213,11 +400,22 @@ export default function Checkout() {
     }
 
     setDeliveryZoneInfo(null);
-  }, [form.division, form.district, form.area, deliveryOption, deliveryLocations]);
+  }, [form.division, form.district, form.area, deliveryOption, deliveryLocations, fulfillmentMethod]);
 
 
   const validateShippingInfo = () => {
-    if (!form.name || !form.phone || !form.street || !form.district || !form.division || !form.area || !form.address_label) {
+    if (!form.name || !form.phone) {
+      toast({ title: "Please enter your name and phone number", variant: "destructive" });
+      return false;
+    }
+    if (fulfillmentMethod === "pickup") {
+      if (!pickupAvailable) {
+        toast({ title: "Store pickup is unavailable for one or more products", variant: "destructive" });
+        return false;
+      }
+      return true;
+    }
+    if (!form.street || !form.district || !form.division || !form.area || !form.address_label) {
       toast({ title: "Please fill all required fields", variant: "destructive" });
       return false;
     }
@@ -230,7 +428,12 @@ export default function Checkout() {
 
   const createOrder = async (status = "pending") => {
     const orderNumber = "OMB-" + Date.now().toString().slice(-8);
-    const admin_fee_applied = !deliveryZoneInfo && Number.isFinite(Number(settings.delivery_admin_fee)) && settings.delivery_admin_fee !== "";
+    const orderPickupLocations = fulfillmentMethod === "pickup"
+      ? availablePickupLocations.filter((location) => orderedItems.some((item) => (
+        item.seller_id ? String(item.seller_id) === location.id : item.pickup_location?.id === location.id
+      )))
+      : [];
+    const orderShippingFee = fulfillmentMethod === "pickup" ? 0 : shippingFee;
     
     const endpoint = authenticatedUser
       ? "/api/entities/Order"
@@ -247,19 +450,23 @@ export default function Checkout() {
         customer_name: form.name,
         customer_email: form.email,
         customer_phone: form.phone,
-        delivery_address: {
-          street: form.street,
-          landmark: form.landmark,
-          area: form.area,
-          district: form.district,
-          division: form.division,
-          postal_code: form.postal_code,
-          address_label: form.address_label,
-          office_time: form.office_time,
-        },
-        items: orderedItems,
+        fulfillment_method: fulfillmentMethod,
+        pickup_locations: orderPickupLocations,
+        delivery_address: fulfillmentMethod === "delivery" ? {
+            street: form.street,
+            landmark: form.landmark,
+            area: form.area,
+            district: form.district,
+            division: form.division,
+            postal_code: form.postal_code,
+            address_label: form.address_label,
+            office_time: form.office_time,
+          } : null,
+        items: orderedItems.map(({ pickup_location, ...item }) => item),
         subtotal,
-        shipping_fee: shippingFee,
+        discount,
+        shipping_fee: orderShippingFee,
+        delivery_option: fulfillmentMethod === "delivery" ? deliveryOption : null,
         total,
         payment_method: paymentMethod,
         status
@@ -283,7 +490,7 @@ export default function Checkout() {
 
     // Send Slack notification
     apiClient.integrations.Core.InvokeLLM({
-      prompt: `Send a Slack notification message (plain text, no markdown) for a new order on Open Market BD:\nOrder: ${orderNumber}\nCustomer: ${form.name} (${form.phone})\nItems: ${orderedItems.length} item(s)\nTotal: ৳${total.toLocaleString()}\nPayment: ${paymentMethod.toUpperCase()}\nStatus: ${status}\nDistrict: ${form.district}\n\nFormat it as a brief, professional Slack message starting with 🛒 New Order!`
+      prompt: `Send a Slack notification message (plain text, no markdown) for a new order on Open Market BD:\n      Order: ${orderNumber}\nCustomer: ${form.name} (${form.phone})\nItems: ${orderedItems.length} item(s)\nTotal: ৳${total.toLocaleString()}\nPayment: ${paymentMethod.toUpperCase()}\nFulfillment: ${fulfillmentMethod === "pickup" ? "Store pickup" : "Delivery"}\nStatus: ${status}\n${fulfillmentMethod === "delivery" ? `District: ${form.district}` : `Pickup stores: ${orderPickupLocations.map((location) => location.store_name).join(", ")}`}\n\nFormat it as a brief, professional Slack message starting with 🛒 New Order!`
     }).catch(() => {});
 
     return order;
@@ -370,6 +577,16 @@ export default function Checkout() {
                 <span className="font-medium capitalize text-yellow-600">{ordered.status || "Pending"}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-muted-foreground">Fulfillment</span>
+                <span className="font-medium capitalize">{ordered.fulfillment_method === "pickup" ? "Store pickup" : "Delivery"}</span>
+              </div>
+              {ordered.fulfillment_method === "pickup" && ordered.pickup_locations?.map((location) => (
+                <div key={location.id} className="text-left">
+                  <p className="font-medium">{location.store_name}</p>
+                  <p className="text-xs text-muted-foreground">{location.address}</p>
+                </div>
+              ))}
+              <div className="flex justify-between">
                 <span className="text-muted-foreground">Payment</span>
                 <span className="font-medium capitalize">{ordered.payment_method?.toUpperCase()}</span>
               </div>
@@ -438,9 +655,67 @@ export default function Checkout() {
                         className="mt-1" 
                       />
                     </div>
-                    <div>
-                      <Label>Delivery Type *</Label>
-                      <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div className="lg:col-span-2">
+                      <Label>How would you like to receive your order?</Label>
+                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className={`cursor-pointer rounded-xl border-2 px-4 py-3 transition-colors ${fulfillmentMethod === "delivery" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}>
+                          <input
+                            type="radio"
+                            name="fulfillment_method"
+                            value="delivery"
+                            checked={fulfillmentMethod === "delivery"}
+                            onChange={() => setFulfillmentMethod("delivery")}
+                            className="sr-only"
+                          />
+                          <span className="flex items-center gap-2 font-semibold"><Truck className="h-4 w-4 text-primary" /> Delivery</span>
+                          <p className="mt-1 text-xs text-muted-foreground">Deliver to your address. Delivery fee depends on your area.</p>
+                        </label>
+                        <label className={`cursor-pointer rounded-xl border-2 px-4 py-3 transition-colors ${fulfillmentMethod === "pickup" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"} ${!pickupSelectable ? "cursor-not-allowed opacity-60" : ""}`}>
+                          <input
+                            type="radio"
+                            name="fulfillment_method"
+                            value="pickup"
+                            checked={fulfillmentMethod === "pickup"}
+                            onChange={() => setFulfillmentMethod("pickup")}
+                            disabled={!pickupSelectable}
+                            className="sr-only"
+                          />
+                          <span className="flex items-center gap-2 font-semibold"><Store className="h-4 w-4 text-primary" /> Pick up from store</span>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {pickupLocationsLoading
+                              ? "Checking store pickup availability..."
+                              : pickupAvailable
+                                ? "Collect your order from the listed store location(s). No delivery fee."
+                                : pickupUnavailableReasons.join(" ")}
+                          </p>
+                        </label>
+                      </div>
+                      {fulfillmentMethod === "pickup" && (
+                        <div className="mt-3 space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                          {pickupLocationsLoading ? (
+                            <p className="text-sm text-muted-foreground">Loading pickup locations...</p>
+                          ) : (
+                            <>
+                              {availablePickupLocations.map((location) => (
+                                <div key={location.id} className="flex items-start gap-2 text-sm">
+                                  <Store className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                                  <div><p className="font-semibold">{location.store_name}</p><p className="text-muted-foreground">{location.address}</p></div>
+                                </div>
+                              ))}
+                              {!pickupAvailable && pickupUnavailableReasons.map((reason) => (
+                                <p key={reason} className="text-sm text-amber-700">{reason}</p>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {fulfillmentMethod === "delivery" && (
+                      <>
+                      <div>
+                        <Label>Delivery Type *</Label>
+                        <div className="mt-2 grid grid-cols-2 gap-3">
                         <label className={`cursor-pointer rounded-xl border px-3 py-3 text-sm ${form.address_label === "home" ? "border-primary bg-primary/10" : "border-border hover:border-primary"}`}>
                           <input 
                             type="radio" 
@@ -547,6 +822,8 @@ export default function Checkout() {
                         </div>
                       )}
                     </div>
+                    </>
+                    )}
                   </div>
                 </div>
 
@@ -606,12 +883,15 @@ export default function Checkout() {
             <h3 className="font-semibold mb-4">Order Summary</h3>
             <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
               {checkoutItems.map(item => (
-                <div key={item.product_id} className="flex items-center gap-2 text-sm">
+                <div key={getCartItemKey(item)} className="flex items-center gap-2 text-sm">
                   {item.product_image && (
                     <img src={item.product_image} alt="" className="w-10 h-10 object-cover rounded" />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="truncate font-medium">{item.product_name}</p>
+                    {Object.entries(item.selected_variants || {}).map(([name, option]) => (
+                      <p key={name} className="text-xs text-muted-foreground">{name}: {option}</p>
+                    ))}
                     <p className="text-muted-foreground">x{item.quantity}</p>
                   </div>
                   <span className="font-semibold">৳{(item.price * item.quantity).toLocaleString()}</span>
@@ -630,9 +910,12 @@ export default function Checkout() {
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Shipping</span>
-                <span>{shippingFee === 0 ? <span className="text-green-600">FREE</span> : `৳${shippingFee}`}</span>
+                <span className="text-muted-foreground">{fulfillmentMethod === "pickup" ? "Store pickup" : "Shipping"}</span>
+                <span>{effectiveShippingFee === 0 ? <span className="text-green-600">FREE</span> : `৳${effectiveShippingFee}`}</span>
               </div>
+              {fulfillmentMethod === "pickup" && availablePickupLocations.map((location) => (
+                <p key={location.id} className="text-xs text-muted-foreground">{location.store_name}: {location.address}</p>
+              ))}
               <div className="flex justify-between font-bold text-base pt-2 border-t border-border">
                 <span>Total</span>
                 <span className="text-primary font-poppins">৳{total.toLocaleString()}</span>

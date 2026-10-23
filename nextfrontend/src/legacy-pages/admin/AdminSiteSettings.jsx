@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { apiClient } from "@/api/apiClient";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,88 @@ import { normalizeImageUrl } from "@/utils/imageUrls";
 import { uploadImageWithSizeCheck } from "@/utils/imageUpload";
 import { buildCategoryTree, parseCategoryList } from "@/utils/categories";
 import { getSafeHttpUrl } from "@/utils/urls";
+
+const SettingsFormContext = createContext(null);
+
+function Field({ label, name, type = "text", icon: Icon, placeholder }) {
+  const { settings, setSettings } = useContext(SettingsFormContext);
+  return (
+    <div>
+      <Label className="text-gray-300 flex items-center gap-1.5">{Icon && <Icon className="w-3.5 h-3.5 text-gray-500" />}{label}</Label>
+      <Input
+        type={type}
+        value={settings[name] || ""}
+        onChange={e => setSettings(current => ({ ...current, [name]: e.target.value }))}
+        placeholder={placeholder}
+        className="mt-1.5 bg-gray-800 border-gray-700 text-white placeholder:text-gray-600"
+      />
+    </div>
+  );
+}
+
+function TextArea({ label, name, rows = 4, richText = false }) {
+  const { settings, setSettings } = useContext(SettingsFormContext);
+  return (
+    <div>
+      <Label className="text-gray-300">{label}</Label>
+      {richText ? (
+        <div className="mt-1.5">
+          <RichTextEditor
+            value={settings[name] || ""}
+            onChange={value => setSettings(current => ({ ...current, [name]: value }))}
+            minHeight={Math.max(180, rows * 34)}
+          />
+        </div>
+      ) : (
+        <textarea
+          value={settings[name] || ""}
+          onChange={e => setSettings(current => ({ ...current, [name]: e.target.value }))}
+          rows={rows}
+          className="mt-1.5 w-full border border-gray-700 rounded-md px-3 py-2 text-sm bg-gray-800 text-white focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+        />
+      )}
+    </div>
+  );
+}
+
+function ImageUploadField({ label, name, placeholder }) {
+  const fileRef = useRef();
+  const [uploading, setUploading] = useState(false);
+  const { settings, setSettings, toast } = useContext(SettingsFormContext);
+  const handleFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { file_url } = await uploadImageWithSizeCheck(file, (message) => toast({ title: message, variant: "destructive" }));
+      setSettings(current => ({ ...current, [name]: file_url }));
+    } catch (error) {
+      toast({ title: error.message || "File upload failed", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  };
+  return (
+    <div>
+      <Label className="text-gray-300">{label}</Label>
+      <div className="mt-1.5 flex gap-2">
+        <Input
+          value={settings[name] || ""}
+          onChange={event => setSettings(current => ({ ...current, [name]: event.target.value }))}
+          placeholder={placeholder}
+          className="flex-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-600"
+        />
+        <button type="button" onClick={() => fileRef.current?.click()}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md text-xs border border-gray-600 transition-colors whitespace-nowrap">
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          Upload
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_SETTINGS = {
   store_name: "Open Market BD",
@@ -51,6 +133,8 @@ const DEFAULT_SETTINGS = {
   terms_conditions: "By using Open Market BD, you agree to our terms and conditions.",
   shipping_info: "Standard delivery: 2-5 business days. Express delivery available in Dhaka.",
   home_products_limit: "10",
+  store_pickup_enabled: "false",
+  admin_pickup_address: "",
   max_image_size_mb: "2",
   delivery_locations_json: JSON.stringify({
     divisions: [
@@ -116,7 +200,7 @@ export default function AdminSiteSettings() {
 
 
   useEffect(() => {
-    apiClient.entities.SiteSettings.list().then(all => {
+    apiClient.entities.SiteSettings.filter({}).then(all => {
       const map = {};
 
       all.forEach(r => {
@@ -134,6 +218,7 @@ export default function AdminSiteSettings() {
           vals[key] = map[key].value;
         }
       });
+      vals.home_products_limit = String(Math.min(20, Math.max(5, Number(vals.home_products_limit) || 10)));
 
       setSettings(vals);
       // categoryList will be loaded from Category entities via loadCategoryData
@@ -154,8 +239,12 @@ export default function AdminSiteSettings() {
       }
 
       setLoading(false);
+    }).catch(error => {
+      console.error("Could not load site settings:", error);
+      toast({ title: error.message || "Could not load site settings", variant: "destructive" });
+      setLoading(false);
     });
-  }, []);
+  }, [toast]);
 
   const loadCategoryData = async () => {
     try {
@@ -168,7 +257,15 @@ export default function AdminSiteSettings() {
   };
 
   useEffect(() => {
-    loadCategoryData();
+    let active = true;
+    apiClient.entities.Category.list("-created_date", 200).then(categories => {
+      if (active) {
+        setCategoryList((categories || []).map((entry) => ({ ...entry, name: entry.name || entry.title || "" })));
+      }
+    }).catch(error => {
+      console.error(error);
+    });
+    return () => { active = false; };
   }, []);
 
   const treeCategories = buildCategoryTree(categoryList);
@@ -275,6 +372,9 @@ export default function AdminSiteSettings() {
 
       await refreshPublicSettings?.();
       toast({ title: "Settings saved!" });
+    } catch (error) {
+      console.error("Could not save site settings:", error);
+      toast({ title: error.message || "Could not save site settings", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -295,6 +395,9 @@ export default function AdminSiteSettings() {
 
       await refreshPublicSettings?.();
       toast({ title: "Settings saved!" });
+    } catch (error) {
+      console.error("Could not save site settings:", error);
+      toast({ title: error.message || "Could not save site settings", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -312,77 +415,6 @@ export default function AdminSiteSettings() {
 
 
   
-
-  const ImageUploadField = ({ label, name, placeholder }) => {
-    const fileRef = useRef();
-    const [uploading, setUploading] = useState(false);
-    const handleFile = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      setUploading(true);
-      try {
-        const { file_url } = await uploadImageWithSizeCheck(file, (message) => toast({ title: message, variant: 'destructive' }));
-        setSettings(s => ({ ...s, [name]: file_url }));
-      } catch (error) {
-        toast({ title: error.message || 'File upload failed', variant: 'destructive' });
-      }
-      setUploading(false);
-    };
-    return (
-      <div>
-        <Label className="text-gray-300">{label}</Label>
-        <div className="mt-1.5 flex gap-2">
-          <Input
-            value={settings[name] || ""}
-            onChange={e => setSettings({ ...settings, [name]: e.target.value })}
-            placeholder={placeholder}
-            className="flex-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-600"
-          />
-          <button onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md text-xs border border-gray-600 transition-colors whitespace-nowrap">
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            Upload
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-        </div>
-      </div>
-    );
-  };
-
-  const Field = ({ label, name, type = "text", icon: Icon, placeholder }) => (
-    <div>
-      <Label className="text-gray-300 flex items-center gap-1.5">{Icon && <Icon className="w-3.5 h-3.5 text-gray-500" />}{label}</Label>
-      <Input
-        type={type}
-        value={settings[name] || ""}
-        onChange={e => setSettings({ ...settings, [name]: e.target.value })}
-        placeholder={placeholder}
-        className="mt-1.5 bg-gray-800 border-gray-700 text-white placeholder:text-gray-600"
-      />
-    </div>
-  );
-
-  const TextArea = ({ label, name, rows = 4, richText = false }) => (
-    <div>
-      <Label className="text-gray-300">{label}</Label>
-      {richText ? (
-        <div className="mt-1.5">
-          <RichTextEditor
-            value={settings[name] || ""}
-            onChange={value => setSettings({ ...settings, [name]: value })}
-            minHeight={Math.max(180, rows * 34)}
-          />
-        </div>
-      ) : (
-        <textarea
-          value={settings[name] || ""}
-          onChange={e => setSettings({ ...settings, [name]: e.target.value })}
-          rows={rows}
-          className="mt-1.5 w-full border border-gray-700 rounded-md px-3 py-2 text-sm bg-gray-800 text-white focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-        />
-      )}
-    </div>
-  );
 
   const addDivision = () => {
     if (!newDivision.trim()) return;
@@ -643,7 +675,7 @@ export default function AdminSiteSettings() {
 
   const TAB_KEYS = {
     general: [
-      "store_name", "store_tagline", "store_logo", "announcement_text", "home_products_limit",
+      "store_name", "store_tagline", "store_logo", "announcement_text", "home_products_limit", "store_pickup_enabled", "admin_pickup_address",
       "home_intro_eyebrow", "home_intro_title", "home_intro_description",
       "home_benefit_1_title", "home_benefit_1_description",
       "home_benefit_2_title", "home_benefit_2_description",
@@ -665,11 +697,12 @@ export default function AdminSiteSettings() {
 
   return (
     <AdminLayout>
+      <SettingsFormContext.Provider value={{ settings, setSettings, toast }}>
       <div className="space-y-5 max-w-4xl">
         {/*space-y-5 max-w-4xl is for screen width  */}
         <div>
           <h2 className="text-white font-poppins font-bold text-xl flex items-center gap-2"><Store className="w-5 h-5 text-primary" /> Site Settings</h2>
-          <p className="text-gray-400 text-sm">Manage your store's identity, contact info, and policies</p>
+          <p className="text-gray-400 text-sm">Manage your store&apos;s identity, contact info, and policies</p>
         </div>
 
         {/* Tabs */}
@@ -705,13 +738,40 @@ export default function AdminSiteSettings() {
                 <p className="text-gray-500 text-xs mt-0.5 mb-1.5">Controls how many products are requested for Featured, Trending, New Arrivals, and Flash Sales.</p>
                 <Input
                   type="number"
-                  min="1"
+                  min="5"
                   max="20"
                   value={settings.home_products_limit || "10"}
-                  onChange={e => setSettings({ ...settings, home_products_limit: e.target.value })}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setSettings({
+                      ...settings,
+                      home_products_limit: value
+                        ? String(Math.min(20, Math.max(5, Number(value) || 5)))
+                        : "",
+                    });
+                  }}
                   className="bg-gray-800 border-gray-700 text-white"
                 />
               </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-800 bg-gray-800/50 p-4">
+                <input
+                  type="checkbox"
+                  checked={settings.store_pickup_enabled === true || String(settings.store_pickup_enabled).toLowerCase() === "true"}
+                  onChange={(event) => setSettings({ ...settings, store_pickup_enabled: String(event.target.checked) })}
+                  className="mt-1 accent-primary"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-gray-200">Enable store pickup at checkout</span>
+                  <span className="mt-1 block text-xs text-gray-400">This enables pickup at checkout and for all admin-added products. Sellers can separately opt in for all their products. Each pickup location must have an address. Pickup has no delivery fee.</span>
+                </span>
+              </label>
+              <Field
+                label="Admin Product Pickup Address"
+                name="admin_pickup_address"
+                icon={MapPin}
+                placeholder="Enter the location customers should visit"
+              />
+              <p className="-mt-3 text-xs text-gray-500">All admin-added products use this pickup location while the global pickup setting is enabled.</p>
               <div className="border-t border-gray-800 pt-4 space-y-3">
                 <div>
                   <h3 className="text-gray-200 text-sm font-semibold">Homepage Introduction</h3>
@@ -1329,6 +1389,7 @@ export default function AdminSiteSettings() {
           </div>
         )}
       </div>
+      </SettingsFormContext.Provider>
     </AdminLayout>
   );
 }

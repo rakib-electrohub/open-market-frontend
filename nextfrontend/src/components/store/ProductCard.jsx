@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "@/lib/next-router";
+import { Link, useNavigate } from "@/lib/next-router";
 import { Heart, ShoppingCart, Star, Zap, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,10 @@ import { getProductImageUrls } from "@/utils/imageUrls";
 
 export default function ProductCard({ product, onAddToCart, onAddToWishlist, isWishlisted }) {
   const [hovered, setHovered] = useState(false);
+  const navigate = useNavigate();
+  const hasVariants = Array.isArray(product.variants) && product.variants.some((variant) => (
+    variant?.name && Array.isArray(variant.options) && variant.options.length
+  ));
 
   const isFlashSale = product.flash_sale_price && product.flash_sale_end && new Date(product.flash_sale_end) > new Date();
   const displayPrice = isFlashSale ? product.flash_sale_price : product.price;
@@ -126,13 +130,13 @@ export default function ProductCard({ product, onAddToCart, onAddToWishlist, isW
         </div>
 
         <Button
-          onClick={() => onAddToCart?.(product)}
+          onClick={() => hasVariants ? navigate(`/product/${product.id}`) : onAddToCart?.(product)}
           disabled={product.stock === 0}
           size="sm"
           className="w-full bg-red-600 hover:bg-red-700 text-white text-xs h-8 disabled:opacity-60"
         >
           <ShoppingCart className="w-3 h-3 mr-1" />
-          {product.stock === 0 ? "Out of Stock" : "Add to Cart"}
+          {product.stock === 0 ? "Out of Stock" : hasVariants ? "Choose Options" : "Add to Cart"}
         </Button>
       </div>
     </div>

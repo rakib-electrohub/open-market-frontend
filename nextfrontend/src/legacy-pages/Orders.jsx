@@ -81,7 +81,17 @@ const OrderCard = ({ order }) => {
               </div>
             ))}
             <div className="pt-2 border-t border-border text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Delivery</span><span className="text-right">{order.delivery_address?.street}, {order.delivery_address?.district}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Fulfillment</span><span className="text-right capitalize">{order.fulfillment_method === "pickup" ? "Store pickup" : "Delivery"}</span></div>
+              {order.fulfillment_method === "pickup" ? (
+                order.pickup_locations?.map((location) => (
+                  <div key={location.id} className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">{location.store_name}</span>
+                    <span className="text-right">{location.address}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="flex justify-between"><span className="text-muted-foreground">Delivery address</span><span className="text-right">{order.delivery_address?.street}, {order.delivery_address?.district}</span></div>
+              )}
               <div className="flex justify-between"><span className="text-muted-foreground">Payment Method</span><span className="capitalize">{order.payment_method}</span></div>
               {order.transaction_id && (
                 <div className="flex justify-between"><span className="text-muted-foreground">Transaction ID</span><span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{order.transaction_id}</span></div>

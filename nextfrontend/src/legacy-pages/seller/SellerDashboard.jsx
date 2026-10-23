@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
+import { useAppSettings } from "@/hooks/useAppSettings";
+import { usePersistentToast } from "@/components/ui/PersistentToast";
 import SellerLayout from "@/components/seller/SellerLayout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Store, Package, TrendingUp, ShoppingBag, Plus, ArrowRight,
   Loader2, AlertCircle, CheckCircle, Clock,
@@ -10,6 +13,7 @@ import {
 } from "lucide-react";
 import FallbackImage from "@/components/ui/FallbackImage";
 import { getProductImageUrls, normalizeImageUrl } from "@/utils/imageUrls";
+import { sellerHasDashboardPermission } from "@/utils/sellerPermissions";
 
 const STATUS_COLORS = {
   pending: "bg-yellow-100 text-yellow-700",
@@ -32,7 +36,15 @@ export default function SellerDashboard() {
   const [chats, setChats] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pickupAddressDraft, setPickupAddressDraft] = useState("");
+  const [savingPickupSettings, setSavingPickupSettings] = useState(false);
+  const settings = useAppSettings();
+  const notify = usePersistentToast();
   const navigate = useNavigate();
+  const marketplacePickupEnabled = settings.store_pickup_enabled === true
+    || String(settings.store_pickup_enabled).toLowerCase() === "true";
+  const sellerPickupEnabled = seller?.store_pickup_enabled === true
+    || String(seller?.store_pickup_enabled).toLowerCase() === "true";
 
   useEffect(() => {
     apiClient.auth.me()
@@ -41,12 +53,14 @@ export default function SellerDashboard() {
         if (!sellers.length) { navigate("/seller/register"); return; }
         const s = sellers[0];
         setSeller(s);
+        setPickupAddressDraft(s.address || "");
         if (s.status !== "approved") { setLoading(false); return; }
 
-        const [prods, allOrders, sellerChats] = await Promise.all([
+        const [prods, allOrders, sellerChats, sellerReviews] = await Promise.all([
           apiClient.entities.Product.filter({ seller_id: s.id }, "-created_date", 100),
           apiClient.entities.Order.list("-created_date", 100),
           apiClient.entities.ProductChat.filter({ seller_id: s.id }, "-last_message_at", 20),
+          apiClient.entities.Review.list("-created_date", 200),
         ]);
 
         setProducts(prods);
@@ -54,22 +68,32 @@ export default function SellerDashboard() {
 
         const sellerProductIds = new Set(prods.map(p => p.id));
         const relevantOrders = allOrders.filter(o =>
-          o.items?.some(item => sellerProductIds.has(item.product_id))
+          o.items?.length && o.items.every(item => sellerProductIds.has(String(item.product_id)))
         );
         setOrders(relevantOrders);
 
-        if (prods.length > 0) {
-          const reviewPromises = prods.slice(0, 10).map(p =>
-            apiClient.entities.Review.filter({ product_id: p.id }).catch(() => [])
-          );
-          const allReviews = (await Promise.all(reviewPromises)).flat();
-          setReviews(allReviews);
-        }
+        setReviews(sellerReviews);
 
         setLoading(false);
       })
       .catch(() => apiClient.auth.redirectToLogin("/seller/dashboard"));
   }, []);
+
+  const savePickupSettings = async (storePickupEnabled = sellerPickupEnabled) => {
+    setSavingPickupSettings(true);
+    try {
+      const updated = await apiClient.entities.Seller.update(seller.id, {
+        address: pickupAddressDraft.trim(),
+        store_pickup_enabled: storePickupEnabled,
+      });
+      setSeller(updated);
+      notify("Store pickup settings saved", "success");
+    } catch (error) {
+      notify(error.message || "Could not save store pickup settings", "error");
+    } finally {
+      setSavingPickupSettings(false);
+    }
+  };
 
   if (loading) return (
     <SellerLayout>
@@ -87,7 +111,7 @@ export default function SellerDashboard() {
             <>
               <Clock className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
               <h2 className="font-poppins font-bold text-xl mb-2">Application Under Review</h2>
-              <p className="text-muted-foreground">Your store <strong>{seller.store_name}</strong> is being reviewed. We'll notify you within 24–48 hours.</p>
+              <p className="text-muted-foreground">Your store <strong>{seller.store_name}</strong> is being reviewed. We&apos;ll notify you within 24–48 hours.</p>
             </>
           ) : (
             <>
@@ -129,6 +153,13 @@ export default function SellerDashboard() {
   const unreadChats = chats.filter(c => !c.is_read_by_seller).length;
   const flashSaleProducts = products.filter(p => p.flash_sale_price && p.flash_sale_end && new Date(p.flash_sale_end) > new Date()).length;
   const outOfStock = products.filter(p => p.stock === 0).length;
+  const storeHealthStats = [
+    { label: "Active Products", ok: activeProducts > 0, value: activeProducts, permission: "products" },
+    { label: "Pending Approval", ok: pendingApproval === 0, value: pendingApproval, permission: "products" },
+    { label: "Out of Stock", ok: outOfStock === 0, value: outOfStock, permission: "inventory" },
+    { label: "Flash Sales Active", ok: flashSaleProducts > 0, value: flashSaleProducts, optional: true, permission: "products" },
+    { label: "Unread Chats", ok: unreadChats === 0, value: unreadChats, permission: "chats" },
+  ].filter(({ permission }) => sellerHasDashboardPermission(seller, permission));
 
   const recentOrders = orders.slice(0, 6);
 
@@ -138,14 +169,28 @@ export default function SellerDashboard() {
     { label: "Total Sold", value: totalSold, sub: `${orders.length} orders`, icon: ShoppingBag, color: "text-purple-600 bg-purple-50" },
     { label: "Avg Rating", value: avgRating, sub: `${reviews.length} reviews`, icon: Star, color: "text-yellow-600 bg-yellow-50" },
   ];
+  const visibleStats = stats.filter(({ label }) => (
+    label === "Total Revenue" || label === "Total Sold"
+      ? sellerHasDashboardPermission(seller, "orders")
+      : label === "Avg Rating" || sellerHasDashboardPermission(seller, "products")
+  ));
 
   const quickActions = [
     { label: "Products", icon: Package, to: "/seller/products", color: "bg-blue-50 text-blue-600 border-blue-200" },
     { label: "Inventory", icon: Archive, to: "/seller/inventory", color: "bg-orange-50 text-orange-600 border-orange-200" },
     { label: `Chats${unreadChats > 0 ? ` (${unreadChats})` : ""}`, icon: MessageCircle, to: "/seller/chats", color: unreadChats > 0 ? "bg-primary/10 text-primary border-primary/30" : "bg-purple-50 text-purple-600 border-purple-200" },
+    { label: "Orders", icon: ShoppingBag, to: "/seller/orders", color: "bg-green-50 text-green-600 border-green-200" },
+    { label: "Reviews", icon: Star, to: "/seller/reviews", color: "bg-yellow-50 text-yellow-600 border-yellow-200" },
     { label: "Flash Sales", icon: Zap, to: "/seller/products", color: "bg-red-50 text-red-600 border-red-200" },
     { label: "View Store", icon: Eye, to: seller ? `/store/${seller.id}` : "/products", color: "bg-green-50 text-green-600 border-green-200" },
   ];
+  const visibleQuickActions = quickActions.filter(({ to }) => {
+    if (to === "/seller/products") return sellerHasDashboardPermission(seller, "products");
+    if (to === "/seller/inventory") return sellerHasDashboardPermission(seller, "inventory");
+    if (to === "/seller/chats") return sellerHasDashboardPermission(seller, "chats");
+    if (to === "/seller/orders") return sellerHasDashboardPermission(seller, "orders");
+    return true;
+  });
 
   return (
     <SellerLayout>
@@ -169,16 +214,16 @@ export default function SellerDashboard() {
             <p className="text-white/80 text-sm mt-0.5">{seller.store_description || "Manage your store and grow your business"}</p>
             <p className="text-white/60 text-xs mt-1">{seller.email} • {seller.phone}</p>
           </div>
-          <Link to="/seller/products">
+          {sellerHasDashboardPermission(seller, "products") && <Link to="/seller/products">
             <Button className="bg-white text-primary hover:bg-white/90 font-semibold gap-2">
               <Plus className="w-4 h-4" /> Add Product
             </Button>
-          </Link>
+          </Link>}
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {stats.map(({ label, value, sub, icon: Icon, color }) => (
+          {visibleStats.map(({ label, value, sub, icon: Icon, color }) => (
             <div key={label} className="bg-white rounded-xl border border-border p-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${color}`}>
                 <Icon className="w-5 h-5" />
@@ -191,8 +236,8 @@ export default function SellerDashboard() {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mb-6">
-          {quickActions.map(({ label, icon: Icon, to, color }) => (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+          {visibleQuickActions.map(({ label, icon: Icon, to, color }) => (
             <Link key={label} to={to}>
               <div className={`border rounded-xl p-3 text-center hover:scale-105 transition-transform cursor-pointer ${color}`}>
                 <Icon className="w-6 h-6 mx-auto mb-1" />
@@ -202,11 +247,58 @@ export default function SellerDashboard() {
           ))}
         </div>
 
+        {marketplacePickupEnabled && sellerHasDashboardPermission(seller, "store_settings") && (
+          <section className="mb-6 rounded-xl border border-border bg-white p-5">
+            <div className="mb-3 flex items-start gap-3">
+              <Store className="mt-0.5 h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-poppins font-semibold">Store pickup</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Enable pickup for all your products and set the address customers should visit.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={sellerPickupEnabled}
+                  onChange={(event) => savePickupSettings(event.target.checked)}
+                  disabled={savingPickupSettings}
+                  className="accent-primary"
+                />
+                Enable pickup for all my products
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={pickupAddressDraft}
+                  onChange={(event) => setPickupAddressDraft(event.target.value)}
+                  placeholder="Pickup address customers should visit"
+                  aria-label="Store pickup address"
+                />
+                <Button
+                  type="button"
+                  onClick={() => savePickupSettings()}
+                  disabled={savingPickupSettings}
+                  variant="outline"
+                  className="shrink-0"
+                >
+                  {savingPickupSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save pickup setup
+                </Button>
+              </div>
+              {sellerPickupEnabled && !pickupAddressDraft.trim() && (
+                <p className="text-xs text-amber-700">Add and save your store address to make pickup available to customers.</p>
+              )}
+            </div>
+          </section>
+        )}
+
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left: Products + Orders */}
           <div className="lg:col-span-2 space-y-6">
             {/* Products */}
-            <div className="bg-white rounded-xl border border-border p-5">
+            {sellerHasDashboardPermission(seller, "products") && <div className="bg-white rounded-xl border border-border p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-poppins font-semibold">My Products</h2>
                 <Link to="/seller/products" className="text-primary text-sm font-medium flex items-center gap-1 hover:underline">
@@ -253,10 +345,10 @@ export default function SellerDashboard() {
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Recent Orders */}
-            <div className="bg-white rounded-xl border border-border p-5">
+            {sellerHasDashboardPermission(seller, "orders") && <div className="bg-white rounded-xl border border-border p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-poppins font-semibold">Recent Orders</h2>
                 <span className="text-xs text-muted-foreground">{orders.length} total</span>
@@ -289,13 +381,13 @@ export default function SellerDashboard() {
                   })}
                 </div>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Right column */}
           <div className="space-y-4">
             {/* Chats */}
-            <div className="bg-white rounded-xl border border-border p-5">
+            {sellerHasDashboardPermission(seller, "chats") && <div className="bg-white rounded-xl border border-border p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-poppins font-semibold flex items-center gap-2">
                   <MessageCircle className="w-4 h-4 text-primary" /> Customer Chats
@@ -315,7 +407,7 @@ export default function SellerDashboard() {
                             <p className="font-medium text-sm">{chat.buyer_name}</p>
                             <p className="text-xs text-muted-foreground truncate">{chat.product_name}</p>
                             {chat.messages?.length > 0 && (
-                              <p className="text-xs text-muted-foreground truncate mt-0.5 italic">"{chat.messages[chat.messages.length - 1].text}"</p>
+                              <p className="text-xs text-muted-foreground truncate mt-0.5 italic">&quot;{chat.messages[chat.messages.length - 1].text}&quot;</p>
                             )}
                           </div>
                           {!chat.is_read_by_seller && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />}
@@ -325,7 +417,7 @@ export default function SellerDashboard() {
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Recent Reviews */}
             <div className="bg-white rounded-xl border border-border p-5">
@@ -345,7 +437,7 @@ export default function SellerDashboard() {
                       </div>
                       <p className="text-xs font-medium">{r.customer_name || "Customer"}</p>
                       <p className="text-xs text-muted-foreground">{r.product_name}</p>
-                      {r.body && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">"{r.body}"</p>}
+                      {r.body && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">&quot;{r.body}&quot;</p>}
                     </div>
                   ))}
                 </div>
@@ -353,16 +445,10 @@ export default function SellerDashboard() {
             </div>
 
             {/* Store Health */}
-            <div className="bg-white rounded-xl border border-border p-5">
+            {storeHealthStats.length > 0 && <div className="bg-white rounded-xl border border-border p-5">
               <h2 className="font-poppins font-semibold mb-3">Store Health</h2>
               <div className="space-y-2 text-sm">
-                {[
-                  { label: "Active Products", ok: activeProducts > 0, value: activeProducts },
-                  { label: "Pending Approval", ok: pendingApproval === 0, value: pendingApproval },
-                  { label: "Out of Stock", ok: outOfStock === 0, value: outOfStock },
-                  { label: "Flash Sales Active", ok: flashSaleProducts > 0, value: flashSaleProducts, optional: true },
-                  { label: "Unread Chats", ok: unreadChats === 0, value: unreadChats },
-                ].map(({ label, ok, value, optional }) => (
+                {storeHealthStats.map(({ label, ok, value, optional }) => (
                   <div key={label} className="flex items-center justify-between">
                     <span className="text-muted-foreground">{label}</span>
                     <div className="flex items-center gap-1.5">
@@ -372,11 +458,10 @@ export default function SellerDashboard() {
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       </div>
     </SellerLayout>
   );
 }
-

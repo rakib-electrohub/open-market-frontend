@@ -108,10 +108,28 @@ export const createSchema = async (pool) => {
       UNIQUE(user_id, product_id)
     );
 
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subscription JSONB NOT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS push_notification_events (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      event_key TEXT NOT NULL,
+      data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE(user_id, event_key)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_entities_entity_created_date ON entities(entity, created_date DESC);
     CREATE INDEX IF NOT EXISTS idx_entities_data_gin ON entities USING GIN (data);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_verification_codes_email_code ON verification_codes(email, code);
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_push_notification_events_user_created ON push_notification_events(user_id, created_at DESC);
   `);
 
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT');

@@ -84,7 +84,7 @@ export default function Home({ initialData }) {
   const [loading, setLoading] = useState(true);
   const notify = usePersistentToast();
   const settings = useAppSettings();
-  const homeProductLimit = Math.min(20, Math.max(1, Number(settings.home_products_limit) || 10));
+  const homeProductLimit = Math.min(20, Math.max(5, Number(settings.home_products_limit) || 10));
   const printingServiceUrl = getSafeHttpUrl(settings.printing_service_url);
 
   useEffect(() => {
@@ -144,7 +144,7 @@ export default function Home({ initialData }) {
       newCart = cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + 1 } : c);
     } else {
       const price = product.flash_sale_price && new Date(product.flash_sale_end) > new Date() ? product.flash_sale_price : product.price;
-      newCart = [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
+      newCart = [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], seller_id: product.seller_id, seller_name: product.seller_name, quantity: 1, price }];
     }
     setCart(newCart);
     persistCart(newCart);

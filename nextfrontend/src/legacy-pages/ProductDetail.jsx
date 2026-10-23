@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
-import { persistCart } from "@/utils/cart";
+import { getCartItemKey, persistCart } from "@/utils/cart";
 import { useToast } from "@/components/ui/use-toast";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -15,6 +15,7 @@ import ProductChatBox from "@/components/store/ProductChatBox";
 import FallbackImage from "@/components/ui/FallbackImage";
 import RichTextRenderer from "@/components/RichTextRenderer";
 import { getProductImageUrls } from "@/utils/imageUrls";
+import { getVariantPrice, normalizeProductSpecifications, normalizeProductVariants } from "@/utils/productAttributes";
 
 function VideoPlayer({ url }) {
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
@@ -88,8 +89,13 @@ export default function ProductDetail({ initialData }) {
   const [selectedImage, setSelectedImage] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [activeDetailTab, setActiveDetailTab] = useState("description");
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariants, setSelectedVariants] = useState({});
+  const [variantSelection, setVariantSelection] = useState(() => ({
+    productId: initialData?.product?.id,
+    values: Object.fromEntries(normalizeProductVariants(initialData?.product?.variants)
+      .map((variant) => [variant.name, variant.options[0].value])),
+  }));
   const [wishlist, setWishlist] = useState([]);
   const [userEmail, setUserEmail] = useState(null);
   const [cart, setCart] = useState(() => {
@@ -147,25 +153,62 @@ export default function ProductDetail({ initialData }) {
   if (!product) return <div className="min-h-screen flex items-center justify-center"><p>Product not found</p></div>;
 
   const isFlashSale = product.flash_sale_price && product.flash_sale_end && new Date(product.flash_sale_end) > new Date();
-  const price = isFlashSale ? product.flash_sale_price : product.price;
-  const originalPrice = isFlashSale ? product.price : product.compare_price;
-  const discount = originalPrice ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
   const isWishlisted = wishlist.some(w => w.product_id === product.id);
   const productImages = getProductImageUrls(product);
+  const productVariants = normalizeProductVariants(product.variants);
+  const selectedVariants = variantSelection.productId === product.id
+    ? variantSelection.values
+    : Object.fromEntries(productVariants.map((variant) => [variant.name, variant.options[0].value]));
+  const productSpecifications = normalizeProductSpecifications(product.specifications);
+  const missingVariant = productVariants.find((variant) => !selectedVariants[variant.name]);
+  const basePrice = isFlashSale ? product.flash_sale_price : product.price;
+  const originalBasePrice = isFlashSale ? product.price : product.compare_price;
+  const price = getVariantPrice(productVariants, selectedVariants, basePrice);
+  const originalPrice = originalBasePrice ? getVariantPrice(productVariants, selectedVariants, originalBasePrice) : originalBasePrice;
+  const discount = originalPrice ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
   const productDescription = product.short_description || product.description || `Buy ${product.name} from Open Market BD.`;
   const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
+  const detailTabs = [
+    { id: "description", label: "Description" },
+    { id: "specifications", label: "Specifications" },
+    { id: "reviews", label: `Reviews (${reviews.length})` },
+    { id: "questions", label: "Q&A (0)" },
+  ];
+  const handleDetailTabKeyDown = (event, index) => {
+    let nextIndex;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % detailTabs.length;
+    else if (event.key === "ArrowLeft") nextIndex = (index - 1 + detailTabs.length) % detailTabs.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = detailTabs.length - 1;
+    else return;
+
+    event.preventDefault();
+    setActiveDetailTab(detailTabs[nextIndex].id);
+    document.getElementById(`product-tab-${detailTabs[nextIndex].id}`)?.focus();
+  };
   const handleAddToCart = () => {
-    const existing = cart.find(c => c.product_id === product.id);
+    if (missingVariant) {
+      toast({ title: `Please select ${missingVariant.name}`, variant: "destructive" });
+      return;
+    }
+    const selected_variants = Object.keys(selectedVariants).length ? selectedVariants : undefined;
+    const cartItem = { product_id: product.id, product_name: product.name, product_image: productImages[0], seller_id: product.seller_id, seller_name: product.seller_name, quantity, price, ...(selected_variants ? { selected_variants } : {}) };
+    const itemKey = getCartItemKey(cartItem);
+    const existing = cart.find(item => getCartItemKey(item) === itemKey);
     const newCart = existing
-      ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + quantity } : c)
-      : [...cart, { product_id: product.id, product_name: product.name, product_image: productImages[0], quantity, price }];
+      ? cart.map(item => getCartItemKey(item) === itemKey ? { ...item, quantity: item.quantity + quantity } : item)
+      : [...cart, cartItem];
     setCart(newCart);
     persistCart(newCart);
     toast({ title: "Added to cart!", description: `${quantity}x ${product.name}` });
   };
 
   const handleBuyNow = () => {
-    const item = { product_id: product.id, product_name: product.name, product_image: productImages[0], quantity, price };
+    if (missingVariant) {
+      toast({ title: `Please select ${missingVariant.name}`, variant: "destructive" });
+      return;
+    }
+    const item = { product_id: product.id, product_name: product.name, product_image: productImages[0], seller_id: product.seller_id, seller_name: product.seller_name, quantity, price, ...(Object.keys(selectedVariants).length ? { selected_variants: selectedVariants } : {}) };
     navigate("/checkout", { state: { directBuy: item, discount: 0, coupon: null } });
   };
 
@@ -305,20 +348,25 @@ export default function ProductDetail({ initialData }) {
             <div>
               {product.brand && <p className="text-sm text-muted-foreground mb-1">{product.brand}</p>}
               <h1 className="font-poppins font-bold text-2xl text-foreground mb-3 leading-tight">{product.name}</h1>
-              {product.sku && (
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">SKU</span>
-                  <span className="text-sm font-mono bg-muted px-2 py-1 rounded-md text-foreground">{product.sku}</span>
+              <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+                {product.sku && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">SKU</span>
+                    <span className="rounded-md bg-muted px-2 py-1 text-sm font-mono text-foreground">{product.sku}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <div className="flex">{[1,2,3,4,5].map(s => <Star key={s} className={`w-4 h-4 ${s <= Math.round(avgRating) ? "text-yellow-400 fill-yellow-400" : "text-gray-200 fill-gray-200"}`} />)}</div>
+                  <span className="text-sm font-medium">{avgRating.toFixed(1)}</span>
+                  <button type="button" onClick={() => setActiveDetailTab("reviews")} className="text-muted-foreground text-sm hover:text-primary">
+                    ({reviews.length} reviews)
+                  </button>
+                  <span className="text-muted-foreground text-sm">• {product.sold_count || 0} sold</span>
                 </div>
-              )}
-
-              {/* Rating */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex">{[1,2,3,4,5].map(s => <Star key={s} className={`w-4 h-4 ${s <= Math.round(avgRating) ? "text-yellow-400 fill-yellow-400" : "text-gray-200 fill-gray-200"}`} />)}</div>
-                <span className="text-sm font-medium">{avgRating.toFixed(1)}</span>
-                <span className="text-muted-foreground text-sm">({reviews.length} reviews)</span>
-                <span className="text-muted-foreground text-sm">• {product.sold_count || 0} sold</span>
               </div>
+              {product.short_description && (
+                <RichTextRenderer content={product.short_description} className="mb-5 text-sm text-muted-foreground rich-text-content" />
+              )}
 
               {/* Flash sale */}
               {isFlashSale && (
@@ -344,14 +392,17 @@ export default function ProductDetail({ initialData }) {
               </div>
 
               {/* Variants */}
-              {product.variants?.map(variant => (
+              {productVariants.map(variant => (
                 <div key={variant.name} className="mb-4">
                   <p className="text-sm font-semibold mb-2">{variant.name}</p>
                   <div className="flex flex-wrap gap-2">
-                    {variant.options?.map(opt => (
-                      <button key={opt} onClick={() => setSelectedVariants({ ...selectedVariants, [variant.name]: opt })}
-                        className={`px-3 py-1.5 text-sm border rounded-lg transition-colors ${selectedVariants[variant.name] === opt ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
-                        {opt}
+                    {variant.options?.map((option) => (
+                      <button key={option.value} onClick={() => setVariantSelection({
+                        productId: product.id,
+                        values: { ...selectedVariants, [variant.name]: option.value },
+                      })}
+                        className={`px-3 py-1.5 text-sm border rounded-lg transition-colors ${selectedVariants[variant.name] === option.value ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/50"}`}>
+                        {option.value}{option.price_adjustment ? ` (${option.price_adjustment > 0 ? "+" : "−"}৳${Math.abs(option.price_adjustment).toLocaleString()})` : ""}
                       </button>
                     ))}
                   </div>
@@ -424,11 +475,6 @@ export default function ProductDetail({ initialData }) {
                 </div>
               )}
 
-              {/* Chat with Seller */}
-              <div className="mb-4">
-                <ProductChatBox product={product} />
-              </div>
-
               {/* Trust */}
               <div className="grid grid-cols-3 gap-3 pt-4 border-t border-border">
                 {[{ icon: Truck, label: "Fast Delivery" }, { icon: Shield, label: "Secure Payment" }, { icon: BadgeCheck, label: "Product Tested" }].map(({ icon: Icon, label }) => (
@@ -441,52 +487,93 @@ export default function ProductDetail({ initialData }) {
             </div>
           </div>
 
-          {/* Short Description */}
-          {product.short_description && (
-            <div className="mt-6 pt-5 border-t border-border">
-              <h2 className="mb-3 font-poppins text-lg font-bold">Short Description</h2>
-              <RichTextRenderer content={product.short_description} className="text-sm text-muted-foreground rich-text-content" />
+          <div className="mt-8 border-t border-border pt-6">
+            <div role="tablist" aria-label="Product details" className="mb-6 flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-muted/40 p-1">
+              {detailTabs.map((tab, index) => (
+                <button
+                  key={tab.id}
+                  id={`product-tab-${tab.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeDetailTab === tab.id}
+                  aria-controls={`product-panel-${tab.id}`}
+                  onClick={() => setActiveDetailTab(tab.id)}
+                  onKeyDown={(event) => handleDetailTabKeyDown(event, index)}
+                  tabIndex={activeDetailTab === tab.id ? 0 : -1}
+                  className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                    activeDetailTab === tab.id
+                      ? "bg-white text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-          )}
 
-          {/* Description */}
-          {product.description && (
-            <div className="mt-6 pt-5 border-t border-border">
-              <h2 className="font-poppins font-bold text-lg mb-3">Product Description</h2>
-              <RichTextRenderer content={product.description} className="text-sm text-muted-foreground rich-text-content" />
-            </div>
-          )}
-
-          {/* Reviews */}
-          <div className="mt-8 pt-6 border-t border-border">
-            <h2 className="font-poppins font-bold text-lg mb-5">Customer Reviews ({reviews.length})</h2>
-            {reviews.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No reviews yet. Be the first to review!</p>
-            ) : (
-              <div className="space-y-4">
-                {reviews.map(r => (
-                  <div key={r.id} className="bg-muted/30 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="flex">{[1,2,3,4,5].map(s => <Star key={s} className={`w-3.5 h-3.5 ${s <= r.rating ? "text-yellow-400 fill-yellow-400" : "text-gray-200 fill-gray-200"}`} />)}</div>
-                      <span className="font-semibold text-sm">{r.customer_name || "Customer"}</span>
-                      <span className="text-xs text-muted-foreground">{new Date(r.created_date).toLocaleDateString()}</span>
-                    </div>
-                    {r.title && <p className="font-medium text-sm mb-1">{r.title}</p>}
-                    {r.body && <p className="text-sm text-muted-foreground">{r.body}</p>}
-                    {r.photo_url && (
-                      <img src={r.photo_url} alt="Review photo" className="mt-2 w-32 h-32 object-cover rounded-lg border border-border cursor-pointer hover:opacity-90" onClick={() => window.open(r.photo_url, '_blank')} />
-                    )}
+            <section id="product-panel-description" role="tabpanel" aria-labelledby="product-tab-description" tabIndex={0} hidden={activeDetailTab !== "description"} className="space-y-6">
+                {product.description && (
+                  <div>
+                    <h2 className="mb-3 font-poppins text-lg font-bold">Product Description</h2>
+                    <RichTextRenderer content={product.description} className="text-sm text-muted-foreground rich-text-content" />
                   </div>
-                ))}
-              </div>
-            )}
-            <ReviewForm
-              productId={id}
-              productName={product.name}
-              onReviewSubmitted={() =>
-                apiClient.entities.Review.filter({ product_id: id, is_approved: true }).then(setReviews)
-              }
-            />
+                )}
+                {!product.description && (
+                  <p className="text-sm text-muted-foreground">No description has been added for this product.</p>
+                )}
+            </section>
+
+            <section id="product-panel-specifications" role="tabpanel" aria-labelledby="product-tab-specifications" tabIndex={0} hidden={activeDetailTab !== "specifications"}>
+                {productSpecifications.length ? (
+                  <div className="overflow-hidden rounded-xl border border-border">
+                    {productSpecifications.map((specification, index) => (
+                      <div key={`${specification.name}-${index}`} className={`grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-4 ${index % 2 ? "bg-muted/30" : "bg-white"}`}>
+                        <span className="text-sm font-semibold">{specification.name}</span>
+                        <span className="text-sm text-muted-foreground">{specification.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No specifications have been added for this product.</p>
+                )}
+            </section>
+
+            <section id="product-panel-reviews" role="tabpanel" aria-labelledby="product-tab-reviews" tabIndex={0} hidden={activeDetailTab !== "reviews"}>
+                <h2 className="mb-5 font-poppins text-lg font-bold">Customer Reviews ({reviews.length})</h2>
+                {reviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No reviews yet. Be the first to review!</p>
+                ) : (
+                  <div className="space-y-4">
+                    {reviews.map((r) => (
+                      <div key={r.id} className="rounded-xl bg-muted/30 p-4">
+                        <div className="mb-2 flex items-center gap-2">
+                          <div className="flex">{[1, 2, 3, 4, 5].map((s) => <Star key={s} className={`h-3.5 w-3.5 ${s <= r.rating ? "fill-yellow-400 text-yellow-400" : "fill-gray-200 text-gray-200"}`} />)}</div>
+                          <span className="text-sm font-semibold">{r.customer_name || "Customer"}</span>
+                          <span className="text-xs text-muted-foreground">{new Date(r.created_date).toLocaleDateString()}</span>
+                        </div>
+                        {r.title && <p className="mb-1 text-sm font-medium">{r.title}</p>}
+                        {r.body && <p className="text-sm text-muted-foreground">{r.body}</p>}
+                        {r.photo_url && (
+                          <img src={r.photo_url} alt="Review photo" className="mt-2 h-32 w-32 cursor-pointer rounded-lg border border-border object-cover hover:opacity-90" onClick={() => window.open(r.photo_url, "_blank")} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <ReviewForm
+                  productId={id}
+                  productName={product.name}
+                  onReviewSubmitted={() =>
+                    apiClient.entities.Review.filter({ product_id: id, is_approved: true }).then(setReviews)
+                  }
+                />
+            </section>
+
+            <section id="product-panel-questions" role="tabpanel" aria-labelledby="product-tab-questions" tabIndex={0} hidden={activeDetailTab !== "questions"}>
+                <h2 className="mb-2 font-poppins text-lg font-bold">Questions & Answers</h2>
+                <p className="mb-4 text-sm text-muted-foreground">Ask the seller privately about this product.</p>
+                <ProductChatBox product={product} />
+            </section>
           </div>
         </div>
       </main>

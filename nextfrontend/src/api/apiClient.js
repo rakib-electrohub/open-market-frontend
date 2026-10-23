@@ -157,6 +157,18 @@ const publicReviews = {
   },
 };
 
+const notifications = {
+  getPushConfiguration: () => apiFetch('/notifications/push-key', { method: 'GET' }),
+  savePushSubscription: (subscription) => apiFetch('/notifications/push-subscription', {
+    method: 'POST',
+    body: { subscription },
+  }),
+  removePushSubscription: (endpoint) => apiFetch('/notifications/push-subscription', {
+    method: 'DELETE',
+    body: { endpoint },
+  }),
+};
+
 const integrations = {
   Core: {
     UploadFile: async ({ file }) => {
@@ -198,4 +210,5 @@ export const apiClient = {
   integrations,
   wishlist,
   publicReviews,
+  notifications,
 };

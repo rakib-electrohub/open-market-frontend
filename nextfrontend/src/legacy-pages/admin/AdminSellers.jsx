@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, CheckCircle, XCircle, Loader2, Users, Store } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { SELLER_DASHBOARD_SECTIONS, getSellerDashboardPermissions } from "@/utils/sellerPermissions";
 
 const STATUS_STYLE = {
   pending: "bg-yellow-900/50 text-yellow-400",
@@ -18,14 +19,59 @@ export default function AdminSellers() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [pickupAddressDrafts, setPickupAddressDrafts] = useState({});
+  const [savingPickupAddressId, setSavingPickupAddressId] = useState(null);
+  const [permissionDrafts, setPermissionDrafts] = useState({});
+  const [savingPermissionsId, setSavingPermissionsId] = useState(null);
   const { toast } = useToast();
 
-  useEffect(() => { apiClient.entities.Seller.list("-created_date").then(s => { setSellers(s); setLoading(false); }); }, []);
+  useEffect(() => {
+    apiClient.entities.Seller.list("-created_date").then((sellerList) => {
+      setSellers(sellerList);
+      setPickupAddressDrafts(Object.fromEntries(sellerList.map((seller) => [seller.id, seller.address || ""])));
+      setPermissionDrafts(Object.fromEntries(sellerList.map((seller) => [seller.id, getSellerDashboardPermissions(seller)])));
+      setLoading(false);
+    }).catch((error) => {
+      console.error("Failed to load sellers:", error);
+      toast({ title: "Could not load sellers", variant: "destructive" });
+      setLoading(false);
+    });
+  }, [toast]);
 
   const updateStatus = async (id, status) => {
     const updated = await apiClient.entities.Seller.update(id, { status });
     setSellers(sellers.map(s => s.id === id ? updated : s));
     toast({ title: `Seller ${status}` });
+  };
+
+  const savePickupAddress = async (seller) => {
+    setSavingPickupAddressId(seller.id);
+    try {
+      const updated = await apiClient.entities.Seller.update(seller.id, {
+        address: (pickupAddressDrafts[seller.id] || "").trim(),
+      });
+      setSellers((current) => current.map((entry) => entry.id === seller.id ? updated : entry));
+      toast({ title: "Store pickup address saved" });
+    } catch (error) {
+      toast({ title: error.message || "Could not save store address", variant: "destructive" });
+    } finally {
+      setSavingPickupAddressId(null);
+    }
+  };
+
+  const saveDashboardPermissions = async (seller) => {
+    setSavingPermissionsId(seller.id);
+    try {
+      const updated = await apiClient.entities.Seller.update(seller.id, {
+        dashboard_permissions: permissionDrafts[seller.id] || [],
+      });
+      setSellers((current) => current.map((entry) => entry.id === seller.id ? updated : entry));
+      toast({ title: "Seller dashboard access saved" });
+    } catch (error) {
+      toast({ title: error.message || "Could not save dashboard access", variant: "destructive" });
+    } finally {
+      setSavingPermissionsId(null);
+    }
   };
 
   const filtered = sellers.filter(s => {
@@ -84,6 +130,63 @@ export default function AdminSellers() {
 
                 {seller.store_description && <p className="text-gray-500 text-xs mb-4 line-clamp-2">{seller.store_description}</p>}
 
+                <div className="mb-4">
+                  <label htmlFor={`pickup-address-${seller.id}`} className="mb-1 block text-xs font-medium text-gray-300">Store pickup address</label>
+                  <Input
+                    id={`pickup-address-${seller.id}`}
+                    value={pickupAddressDrafts[seller.id] ?? seller.address ?? ""}
+                    onChange={(event) => setPickupAddressDrafts((current) => ({ ...current, [seller.id]: event.target.value }))}
+                    placeholder="Add the address customers should visit"
+                    className="bg-gray-800 border-gray-700 text-white text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => savePickupAddress(seller)}
+                    disabled={savingPickupAddressId === seller.id}
+                    className="mt-2 w-full border-gray-700 text-xs text-gray-300"
+                  >
+                    {savingPickupAddressId === seller.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                    Save pickup address
+                  </Button>
+                </div>
+
+                <div className="mb-4 rounded-xl border border-gray-800 bg-gray-800/50 p-3">
+                  <p className="mb-1 text-xs font-medium text-gray-300">Seller dashboard access</p>
+                  <p className="mb-3 text-[11px] text-gray-500">Sellers can always view their product reviews. This permission only allows approving or hiding them.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SELLER_DASHBOARD_SECTIONS.map(({ id, label }) => (
+                      <label key={id} className="flex items-center gap-2 text-xs text-gray-400">
+                        <input
+                          type="checkbox"
+                          checked={(permissionDrafts[seller.id] || []).includes(id)}
+                          onChange={(event) => setPermissionDrafts((current) => {
+                            const permissions = current[seller.id] || [];
+                            return {
+                              ...current,
+                              [seller.id]: event.target.checked
+                                ? [...permissions, id]
+                                : permissions.filter((permission) => permission !== id),
+                            };
+                          })}
+                          className="accent-primary"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => saveDashboardPermissions(seller)}
+                    disabled={savingPermissionsId === seller.id}
+                    className="mt-3 w-full border-gray-700 text-xs text-gray-300"
+                  >
+                    {savingPermissionsId === seller.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                    Save dashboard access
+                  </Button>
+                </div>
+
                 <div className="flex gap-2">
                   {seller.status === "pending" && (<>
                     <Button size="sm" onClick={() => updateStatus(seller.id, "approved")} className="flex-1 bg-green-600 hover:bg-green-700 text-xs"><CheckCircle className="w-3 h-3 mr-1" /> Approve</Button>
@@ -103,4 +206,3 @@ export default function AdminSellers() {
     </AdminLayout>
   );
 }
-

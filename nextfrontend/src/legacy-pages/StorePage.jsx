@@ -58,7 +58,7 @@ export default function StorePage({ initialData = {} }) {
     const price = product.flash_sale_price && new Date(product.flash_sale_end) > new Date() ? product.flash_sale_price : product.price;
     const newCart = existing
       ? cart.map(c => c.product_id === product.id ? { ...c, quantity: c.quantity + 1 } : c)
-      : [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], quantity: 1, price }];
+      : [...cart, { product_id: product.id, product_name: product.name, product_image: product.images?.[0], seller_id: product.seller_id, seller_name: product.seller_name, quantity: 1, price }];
     setCart(newCart);
     persistCart(newCart);
     notify?.("Added to cart: " + product.name, "success");

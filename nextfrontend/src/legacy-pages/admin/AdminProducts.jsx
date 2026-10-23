@@ -14,8 +14,9 @@ import RichTextEditor from "@/components/RichTextEditor";
 import { uploadImageWithSizeCheck } from "@/utils/imageUpload";
 import { getProductImageUrls } from "@/utils/imageUrls";
 import { getCategoriesFromSettings, getMainCategories, getSubCategories, getCategoryDisplayLabel } from "@/utils/categories";
+import { normalizeProductSpecifications, normalizeProductVariants } from "@/utils/productAttributes";
 
-const EMPTY = { name: "", price: "", compare_price: "", category: "", main_category: "", subcategory: "", brand: "", sku: "", stock: "", description: "", short_description: "", images: [], video_url: "", is_active: true, is_featured: false, approval_status: "approved" };
+const EMPTY = { name: "", price: "", compare_price: "", category: "", main_category: "", subcategory: "", brand: "", sku: "", stock: "", description: "", short_description: "", images: [], variants: [], specifications: [], video_url: "", is_active: true, is_featured: false, approval_status: "approved" };
 
 export default function AdminProducts() {
   const settings = useAppSettings();
@@ -46,27 +47,67 @@ export default function AdminProducts() {
   const categories = getCategoriesFromSettings(settings);
   const mainCategories = getMainCategories(categoryOptions.length ? categoryOptions : categories.map((name) => ({ id: name, name, parent_id: null })));
   const subCategories = form.main_category ? getSubCategories(categoryOptions.length ? categoryOptions : [], mainCategories.find((cat) => cat.name === form.main_category)?.id) : [];
+  const adminPickupEnabled = settings.store_pickup_enabled === true
+    || String(settings.store_pickup_enabled).toLowerCase() === "true";
+  const adminPickupAddressConfigured = Boolean(String(settings.admin_pickup_address || "").trim());
+  const adminPickupReady = adminPickupEnabled && adminPickupAddressConfigured;
 
-  const openCreate = () => { setEditing(null); setForm({ ...EMPTY }); setImageInput(""); setImageMode("url"); setDialogOpen(true); };
-  const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p, main_category: p.main_category || (p.category && !p.subcategory ? p.category : ""), subcategory: p.subcategory || "" }); setImageInput(""); setImageMode("url"); setDialogOpen(true); };
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      ...EMPTY,
+      store_pickup_enabled: settings.store_pickup_enabled === true
+        || String(settings.store_pickup_enabled).toLowerCase() === "true",
+    });
+    setImageInput("");
+    setImageMode("url");
+    setDialogOpen(true);
+  };
+  const openEdit = (p) => {
+    setEditing(p);
+    setForm({
+      ...EMPTY,
+      ...p,
+      store_pickup_enabled: p.store_pickup_enabled === undefined
+        ? adminPickupEnabled
+        : p.store_pickup_enabled === true || String(p.store_pickup_enabled).toLowerCase() === "true",
+      main_category: p.main_category || (p.category && !p.subcategory ? p.category : ""),
+      subcategory: p.subcategory || "",
+      variants: normalizeProductVariants(p.variants).map((variant) => ({
+        ...variant,
+        options: variant.options.map((option) => ({ ...option, price_adjustment: option.price_adjustment ? String(option.price_adjustment) : "" })),
+      })),
+      specifications: normalizeProductSpecifications(p.specifications),
+    });
+    setImageInput("");
+    setImageMode("url");
+    setDialogOpen(true);
+  };
 
 
   const handleSave = async () => {
     if (!form.name || !form.price) { notify("Name and price required", "error"); return; }
     setSaving(true);
     const categoryValue = getCategoryDisplayLabel(form.main_category, form.subcategory) || form.category;
-    const data = { ...form, category: categoryValue, main_category: form.main_category || "", subcategory: form.subcategory || "", price: parseFloat(form.price) || 0, compare_price: parseFloat(form.compare_price) || 0, stock: parseInt(form.stock) || 0 };
-    if (editing) {
-      const updated = await apiClient.entities.Product.update(editing.id, data);
-      setProducts(products.map(p => p.id === editing.id ? updated : p));
-      notify("Product updated!", "success");
-    } else {
-      const created = await apiClient.entities.Product.create(data);
-      setProducts([created, ...products]);
-      notify("Product created!", "success");
+    const variants = normalizeProductVariants(form.variants);
+    const specifications = normalizeProductSpecifications(form.specifications);
+    const data = { ...form, variants, specifications, category: categoryValue, main_category: form.main_category || "", subcategory: form.subcategory || "", price: parseFloat(form.price) || 0, compare_price: parseFloat(form.compare_price) || 0, stock: parseInt(form.stock) || 0 };
+    try {
+      if (editing) {
+        const updated = await apiClient.entities.Product.update(editing.id, data);
+        setProducts(products.map(p => p.id === editing.id ? updated : p));
+        notify("Product updated!", "success");
+      } else {
+        const created = await apiClient.entities.Product.create(data);
+        setProducts([created, ...products]);
+        notify("Product created!", "success");
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      notify(error.message || "Could not save product", "error");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setDialogOpen(false);
   };
 
   const handleDelete = async (id) => {
@@ -85,6 +126,56 @@ export default function AdminProducts() {
   const addImage = () => {
     if (imageInput.trim()) { setForm(f => ({ ...f, images: [...(f.images || []), imageInput.trim()] })); setImageInput(""); }
   };
+
+  const addVariant = () => setForm((current) => ({
+    ...current,
+    variants: [...(current.variants || []), { name: "", options: [] }],
+  }));
+  const updateVariant = (index, field, value) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, variantIndex) => variantIndex === index ? { ...variant, [field]: value } : variant),
+  }));
+  const addVariantOption = (variantIndex) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? { ...variant, options: [...variant.options, { value: "", price_adjustment: "" }] }
+      : variant),
+  }));
+  const updateVariantOption = (variantIndex, optionIndex, field, value) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? {
+          ...variant,
+          options: variant.options.map((option, nestedIndex) => nestedIndex === optionIndex
+            ? { ...option, [field]: value }
+            : option),
+        }
+      : variant),
+  }));
+  const removeVariantOption = (variantIndex, optionIndex) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? { ...variant, options: variant.options.filter((_, nestedIndex) => nestedIndex !== optionIndex) }
+      : variant),
+  }));
+  const removeVariant = (index) => setForm((current) => ({
+    ...current,
+    variants: current.variants.filter((_, variantIndex) => variantIndex !== index),
+  }));
+  const addSpecification = () => setForm((current) => ({
+    ...current,
+    specifications: [...(current.specifications || []), { name: "", value: "" }],
+  }));
+  const updateSpecification = (index, field, value) => setForm((current) => ({
+    ...current,
+    specifications: current.specifications.map((specification, specificationIndex) => specificationIndex === index
+      ? { ...specification, [field]: value }
+      : specification),
+  }));
+  const removeSpecification = (index) => setForm((current) => ({
+    ...current,
+    specifications: current.specifications.filter((_, specificationIndex) => specificationIndex !== index),
+  }));
 
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -150,13 +241,13 @@ export default function AdminProducts() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-gray-800">
-                {["Product", "Category", "Price", "Stock", "Status", "Actions"].map(h => (
+                {["Product", "Category", "Price", "Stock", "Status", "Pickup", "Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary mx-auto" /></td></tr>
+                  <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary mx-auto" /></td></tr>
                 ) : filtered.map(p => (
                   <tr key={p.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
                     <td className="px-4 py-3">
@@ -182,6 +273,19 @@ export default function AdminProducts() {
                         className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.approval_status === "approved" ? "bg-green-900/50 text-green-400" : p.approval_status === "pending" ? "bg-yellow-900/50 text-yellow-400" : "bg-red-900/50 text-red-400"}`}>
                         {p.approval_status}
                       </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-medium ${p.seller_id || !adminPickupReady || p.store_pickup_enabled === false || String(p.store_pickup_enabled).toLowerCase() === "false" ? "text-gray-500" : "text-green-400"}`}>
+                        {p.seller_id
+                          ? "Seller controlled"
+                          : p.store_pickup_enabled === false || String(p.store_pickup_enabled).toLowerCase() === "false"
+                            ? "Product disabled"
+                            : !adminPickupEnabled
+                              ? "Admin disabled"
+                              : !adminPickupAddressConfigured
+                                ? "Address needed"
+                                : "Admin enabled"}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -224,6 +328,69 @@ export default function AdminProducts() {
             <div><Label className="text-gray-300">Brand</Label><Input value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} className="mt-1 bg-gray-800 border-gray-700 text-white" /></div>
             <div><Label className="text-gray-300">SKU</Label><Input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} className="mt-1 bg-gray-800 border-gray-700 text-white" /></div>
             <div><Label className="text-gray-300">Stock</Label><Input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} className="mt-1 bg-gray-800 border-gray-700 text-white" /></div>
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label className="text-gray-300">Product Variants</Label>
+                  <p className="text-xs text-gray-500 mt-1">Add choices and optional price adjustments. Leave the adjustment at 0 to keep the base price.</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addVariant} className="border-gray-700 text-gray-300">
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(form.variants || []).map((variant, index) => (
+                  <div key={`variant-${index}`} className="space-y-2 rounded-lg border border-gray-800 p-3">
+                    <div className="flex gap-2">
+                      <Input value={variant.name} onChange={(event) => updateVariant(index, "name", event.target.value)} aria-label={`Variant ${index + 1} name`} placeholder="e.g. Color" className="bg-gray-800 border-gray-700 text-white" />
+                      <button type="button" onClick={() => removeVariant(index)} aria-label="Remove variant" className="p-2 text-gray-400 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    {variant.options.map((option, optionIndex) => (
+                      <div key={`option-${optionIndex}`} className="grid grid-cols-[2fr_1fr_auto] gap-2">
+                        <Input value={option.value} onChange={(event) => updateVariantOption(index, optionIndex, "value", event.target.value)} aria-label={`${variant.name || `Variant ${index + 1}`} option ${optionIndex + 1}`} placeholder="e.g. Blue" className="bg-gray-800 border-gray-700 text-white" />
+                        <Input type="number" value={option.price_adjustment} onChange={(event) => updateVariantOption(index, optionIndex, "price_adjustment", event.target.value)} aria-label={`${option.value || "Option"} price adjustment`} placeholder="Extra ৳ (0)" className="bg-gray-800 border-gray-700 text-white" />
+                        <button type="button" onClick={() => removeVariantOption(index, optionIndex)} aria-label="Remove option" className="p-2 text-gray-400 hover:text-red-400"><X className="w-4 h-4" /></button>
+                      </div>
+                    ))}
+                    <Button type="button" variant="outline" size="sm" onClick={() => addVariantOption(index)} className="border-gray-700 text-gray-300">Add option</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label className="text-gray-300">Specifications</Label>
+                  <p className="text-xs text-gray-500 mt-1">Add product details such as Material, Model, or Warranty.</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addSpecification} className="border-gray-700 text-gray-300">
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(form.specifications || []).map((specification, index) => (
+                  <div key={`specification-${index}`} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-center">
+                    <Input
+                      value={specification.name}
+                      onChange={(event) => updateSpecification(index, "name", event.target.value)}
+                      aria-label={`Specification ${index + 1} name`}
+                      placeholder="e.g. Material"
+                      className="bg-gray-800 border-gray-700 text-white"
+                    />
+                    <Input
+                      value={specification.value}
+                      onChange={(event) => updateSpecification(index, "value", event.target.value)}
+                      aria-label={`${specification.name || `Specification ${index + 1}`} value`}
+                      placeholder="e.g. Aluminum"
+                      className="bg-gray-800 border-gray-700 text-white"
+                    />
+                    <button type="button" onClick={() => removeSpecification(index)} aria-label="Remove specification" className="p-2 text-gray-400 hover:text-red-400">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="sm:col-span-2">
               <Label className="text-gray-300">Short Description</Label>
               <RichTextEditor value={form.short_description} onChange={value => setForm({ ...form, short_description: value })} minHeight={140} />
@@ -311,6 +478,21 @@ export default function AdminProducts() {
               <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} className="accent-primary" /><span className="text-gray-300 text-sm">Active</span></label>
               <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.is_featured} onChange={e => setForm({ ...form, is_featured: e.target.checked })} className="accent-primary" /><span className="text-gray-300 text-sm">Featured</span></label>
             </div>
+            <div className="sm:col-span-2 rounded-lg border border-gray-800 p-3 text-xs text-gray-400">
+              New admin products default to pickup enabled when the global setting is on. You can disable pickup for this product here. Seller products follow the seller&apos;s pickup settings.
+            </div>
+            <label className="sm:col-span-2 flex cursor-pointer items-start gap-2 rounded-lg border border-gray-800 p-3">
+              <input
+                type="checkbox"
+                checked={form.store_pickup_enabled === true || String(form.store_pickup_enabled).toLowerCase() === "true"}
+                onChange={(event) => setForm({ ...form, store_pickup_enabled: event.target.checked })}
+                className="mt-1 accent-primary"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-200">Allow pickup for this admin product</span>
+                <span className="mt-1 block text-xs text-gray-400">Pickup also requires the marketplace setting and admin pickup address.</span>
+              </span>
+            </label>
           </div>
           <div className="flex justify-end gap-3 mt-4">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="border-gray-700 text-gray-300">Cancel</Button>

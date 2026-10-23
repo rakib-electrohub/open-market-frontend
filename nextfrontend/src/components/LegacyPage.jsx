@@ -33,6 +33,8 @@ import SellerDashboard from "@/legacy-pages/seller/SellerDashboard";
 import SellerProducts from "@/legacy-pages/seller/SellerProducts";
 import SellerInventory from "@/legacy-pages/seller/SellerInventory";
 import SellerChats from "@/legacy-pages/seller/SellerChats";
+import SellerOrders from "@/legacy-pages/seller/SellerOrders";
+import SellerReviews from "@/legacy-pages/seller/SellerReviews";
 import StorePage from "@/legacy-pages/StorePage";
 import AdminDashboard from "@/legacy-pages/admin/AdminDashboard";
 import AdminProducts from "@/legacy-pages/admin/AdminProducts";
@@ -52,7 +54,7 @@ import AdminUsers from "@/legacy-pages/admin/AdminUsers";
 import AdminStaff from "@/legacy-pages/admin/AdminStaff";
 import StaffDashboard from "@/legacy-pages/staff/StaffDashboard";
 
-const pages = { Home, Products, ProductDetail, Cart, Checkout, Orders, Wishlist, Account, Contact, FlashSales, FAQ, Login, Register, ForgotPassword, ReturnPolicy, PrivacyPolicy, Terms, ShippingInfo, SellerRegister, SellerDashboard, SellerProducts, SellerInventory, SellerChats, StorePage, AdminDashboard, AdminProducts, AdminOrders, AdminFlashSales, AdminCoupons, AdminAnalytics, AdminSellers, AdminBanners, AdminSiteSettings, AdminMessages, AdminReviews, AdminChats, AdminFAQ, AdminInventory, AdminUsers, AdminStaff, StaffDashboard };
+const pages = { Home, Products, ProductDetail, Cart, Checkout, Orders, Wishlist, Account, Contact, FlashSales, FAQ, Login, Register, ForgotPassword, ReturnPolicy, PrivacyPolicy, Terms, ShippingInfo, SellerRegister, SellerDashboard, SellerProducts, SellerInventory, SellerChats, SellerOrders, SellerReviews, StorePage, AdminDashboard, AdminProducts, AdminOrders, AdminFlashSales, AdminCoupons, AdminAnalytics, AdminSellers, AdminBanners, AdminSiteSettings, AdminMessages, AdminReviews, AdminChats, AdminFAQ, AdminInventory, AdminUsers, AdminStaff, StaffDashboard };
 
 export default function LegacyPage({ page, initialData }) {
   const storeChrome = useContext(StoreChromeContext);

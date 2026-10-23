@@ -69,7 +69,7 @@ const getCachedHomepageData = unstable_cache(async (limit = 10) => {
     if (settingsMap[setting.key] === undefined) settingsMap[setting.key] = setting.value;
   });
 
-  const configuredLimit = Math.min(20, Math.max(1, Number(settingsMap.home_products_limit) || limit));
+  const configuredLimit = Math.min(20, Math.max(5, Number(settingsMap.home_products_limit) || limit));
   const [featured, newest, trending, flashSale, banners, categories] = await Promise.all([
     filterProducts({ is_active: true, approval_status: "approved", is_featured: true }, "-created_date", configuredLimit),
     filterProducts({ is_active: true, approval_status: "approved" }, "-created_date", configuredLimit),
@@ -91,7 +91,7 @@ const getCachedHomepageData = unstable_cache(async (limit = 10) => {
     settings: settingsMap,
     limit: configuredLimit,
   };
-}, ["homepage-data-v3"], { revalidate: cacheSeconds, tags: ["homepage", "products", "banners", "settings", "categories"] });
+}, ["homepage-data-v4"], { revalidate: cacheSeconds, tags: ["homepage", "products", "banners", "settings", "categories"] });
 
 export const getHomepageData = cache((limit = 10) => getCachedHomepageData(limit));
 

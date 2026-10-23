@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/apiClient';
 import { parseApiResponse } from '@/api/apiClient';
 import { appParams } from '@/lib/app-params';
@@ -25,14 +25,10 @@ export const AuthProvider = ({ children }) => {
   const [authChecked, setAuthChecked] = useState(false);
   const [appPublicSettings, setAppPublicSettings] = useState(null);
 
-  useEffect(() => {
-    checkAppState();
-  }, []);
-
-  const fetchPublicSettings = async () => {
+  const fetchPublicSettings = useCallback(async () => {
     try {
       // Fetch SiteSettings from the server
-      const settings = await apiClient.entities.SiteSettings.list();
+      const settings = await apiClient.entities.SiteSettings.filter({});
       const settingsMap = {};
       settings.forEach(s => {
         if (settingsMap[s.key] === undefined) {
@@ -44,33 +40,9 @@ export const AuthProvider = ({ children }) => {
       console.error('Failed to fetch settings:', error);
       return {};
     }
-  };
+  }, []);
 
-  const checkAppState = async () => {
-    setIsLoadingPublicSettings(true);
-    setAuthError(null);
-
-    try {
-      const publicSettings = await fetchPublicSettings();
-      setAppPublicSettings(publicSettings);
-      await checkUserAuth();
-    } catch (error) {
-      if (error.status === 401) {
-        setIsAuthenticated(false);
-        setAuthChecked(true);
-      } else {
-        setAuthError({
-          type: 'unknown',
-          message: error.message || 'Failed to load app state',
-        });
-      }
-    } finally {
-      setIsLoadingPublicSettings(false);
-      setIsLoadingAuth(false);
-    }
-  };
-
-  const checkUserAuth = async () => {
+  const checkUserAuth = useCallback(async () => {
     setIsLoadingAuth(true);
     setAuthError(null);
     try {
@@ -92,7 +64,35 @@ export const AuthProvider = ({ children }) => {
       setIsLoadingAuth(false);
       setAuthChecked(true);
     }
-  };
+  }, []);
+
+  const checkAppState = useCallback(async () => {
+    setIsLoadingPublicSettings(true);
+    setAuthError(null);
+
+    try {
+      const publicSettings = await fetchPublicSettings();
+      setAppPublicSettings(publicSettings);
+      await checkUserAuth();
+    } catch (error) {
+      if (error.status === 401) {
+        setIsAuthenticated(false);
+        setAuthChecked(true);
+      } else {
+        setAuthError({
+          type: 'unknown',
+          message: error.message || 'Failed to load app state',
+        });
+      }
+    } finally {
+      setIsLoadingPublicSettings(false);
+      setIsLoadingAuth(false);
+    }
+  }, [checkUserAuth, fetchPublicSettings]);
+
+  useEffect(() => {
+    checkAppState();
+  }, [checkAppState]);
 
   const logout = async (shouldRedirect = true) => {
     setUser(null);

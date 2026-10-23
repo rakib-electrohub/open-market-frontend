@@ -23,6 +23,20 @@ REVALIDATE_SECRET=generate-a-long-random-secret
 
 `PG_POOL_MAX` is an optional maximum PostgreSQL connections setting for each running app process (default `20`, allowed `1`-`50`). Set it according to the database connection limit and the number of app instances; the combined pool sizes must stay below the database limit, leaving room for maintenance and other clients.
 
+## Live alerts
+
+Admins and approved sellers can enable browser alerts from their dashboard header. Browser permission is required once per device; after that, Web Push can show alerts for new orders and incoming customer messages while the dashboard or browser tab is closed. Push requires HTTPS in production and these server environment variables:
+
+```env
+WEB_PUSH_PUBLIC_KEY=your-vapid-public-key
+WEB_PUSH_PRIVATE_KEY=your-vapid-private-key
+WEB_PUSH_SUBJECT=mailto:support@your-domain.example
+```
+
+Generate a VAPID key pair with `npx web-push generate-vapid-keys`. Keep the private key secret and configure both keys on every API server instance. Cash-on-delivery orders alert after the order is saved; online-payment orders alert only after payment confirmation. Admins receive the order summary and each approved seller receives only a summary of the products sold by their store. New product-chat messages notify admins and the relevant seller; contact-form messages notify admins.
+
+Alerts use the browser/operating-system notification sound and vibration settings; users must keep notifications enabled on their device.
+
 ## Architecture
 
 - `src/app/(store)` contains public storefront routes and shared layouts.

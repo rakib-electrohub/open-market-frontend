@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "@/lib/next-router";
+import { useState, useEffect } from "react";
+import { Link, useLocation, useNavigate } from "@/lib/next-router";
 import {
-  LayoutDashboard, Package, Warehouse, MessageCircle,
+  LayoutDashboard, Package, Warehouse, MessageCircle, ShoppingBag, Star,
   Store, Menu, LogOut, ChevronRight, X
 } from "lucide-react";
 import { apiClient } from "@/api/apiClient";
+import { sellerHasDashboardPermission } from "@/utils/sellerPermissions";
+import PushNotificationControl from "@/components/notifications/PushNotificationControl";
 
 // Module-level cache — persists across navigations, clears on full page reload
 let _cachedSeller = null;
@@ -18,27 +20,33 @@ const NAV_ITEMS = [
   { icon: Package, label: "Products", path: "/seller/products" },
   { icon: Warehouse, label: "Inventory", path: "/seller/inventory" },
   { icon: MessageCircle, label: "Chats", path: "/seller/chats" },
+  { icon: ShoppingBag, label: "Orders", path: "/seller/orders" },
+  { icon: Star, label: "Reviews", path: "/seller/reviews" },
 ];
 
 export default function SellerLayout({ children, mainClassName = "p-4 sm:p-6 overflow-auto" }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [seller, setSeller] = useState(_cachedSeller);
-  const initialized = useRef(false);
+  const [loadedPath, setLoadedPath] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    if (_cachedSeller !== null) return;
-
+    let active = true;
     apiClient.auth.me().then(async (u) => {
       const sellers = await apiClient.entities.Seller.filter({ user_id: u.id });
-      if (sellers.length) {
-        _cachedSeller = sellers[0];
-        setSeller(sellers[0]);
+      if (active) {
+        const currentSeller = sellers[0] || null;
+        _cachedSeller = currentSeller;
+        setSeller(currentSeller);
+        setLoadedPath(location.pathname);
       }
-    }).catch(() => {});
-  }, []);
+    }).catch((error) => {
+      console.error("Failed to refresh seller access:", error);
+      if (active) setLoadedPath(location.pathname);
+    });
+    return () => { active = false; };
+  }, [location.pathname]);
 
   // Real-time seller updates (e.g. logo change from dashboard)
   useEffect(() => {
@@ -51,7 +59,37 @@ export default function SellerLayout({ children, mainClassName = "p-4 sm:p-6 ove
     return unsub;
   }, []);
 
+  const routePermissions = {
+    "/seller/products": "products",
+    "/seller/inventory": "inventory",
+    "/seller/chats": "chats",
+    "/seller/orders": "orders",
+  };
+  const requiredPermission = routePermissions[location.pathname];
+  const routeAccessDenied = Boolean(
+    loadedPath === location.pathname &&
+    seller &&
+    requiredPermission &&
+    !sellerHasDashboardPermission(seller, requiredPermission)
+  );
+
+  useEffect(() => {
+    if (routeAccessDenied) navigate("/seller/dashboard");
+  }, [navigate, routeAccessDenied]);
+
   const currentLabel = NAV_ITEMS.find(n => n.path === location.pathname)?.label || "Seller";
+  const visibleItems = NAV_ITEMS.filter(({ path }) => {
+    const permission = routePermissions[path];
+    return !permission || sellerHasDashboardPermission(seller, permission);
+  });
+
+  if (loadedPath !== location.pathname || routeAccessDenied) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <span className="text-sm text-muted-foreground">Loading seller access…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -76,7 +114,7 @@ export default function SellerLayout({ children, mainClassName = "p-4 sm:p-6 ove
 
         {/* Nav */}
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ icon: NavIcon, label, path }) => {
+          {visibleItems.map(({ icon: NavIcon, label, path }) => {
             const active = location.pathname === path;
             return (
               <Link key={path} to={path} onClick={() => setSidebarOpen(false)}
@@ -116,6 +154,9 @@ export default function SellerLayout({ children, mainClassName = "p-4 sm:p-6 ove
             {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
           <h1 className="text-foreground font-semibold text-sm flex-1">{currentLabel}</h1>
+          {seller?.status === "approved" && (
+            <PushNotificationControl className="border-border bg-white text-foreground hover:bg-muted" />
+          )}
           <Link to="/" className="text-muted-foreground hover:text-primary text-xs flex items-center gap-1.5 transition-colors">
             <Store className="w-3.5 h-3.5" /> Store
           </Link>
@@ -128,4 +169,3 @@ export default function SellerLayout({ children, mainClassName = "p-4 sm:p-6 ove
     </div>
   );
 }
-

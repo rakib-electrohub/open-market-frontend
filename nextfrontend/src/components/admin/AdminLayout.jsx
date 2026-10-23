@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/next-router";
 import { LayoutDashboard, Package, ShoppingBag, Tag, Users, User, BarChart3, Image, Store, Menu, Zap, ChevronRight, LogOut, Mail, Star, MessageCircle, HelpCircle, Warehouse, UserCog } from "lucide-react";
 import { apiClient } from "@/api/apiClient";
+import PushNotificationControl from "@/components/notifications/PushNotificationControl";
 
 // Module-level cache — survives re-renders, resets on full page reload only
 let _cachedUser = null;
@@ -165,6 +166,9 @@ export default function AdminLayout({ children }) {
             <Menu className="w-5 h-5" />
           </button>
           <h1 className="text-white font-semibold text-sm flex-1">{NAV_ITEMS.find(n => n.path === location.pathname)?.label || "Admin"}</h1>
+          {currentUser?.role === "admin" && (
+            <PushNotificationControl className="border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800 hover:text-white" />
+          )}
           <Link to="/" className="text-gray-400 hover:text-white text-xs flex items-center gap-1">
             <Store className="w-3.5 h-3.5" /> Store
           </Link>
@@ -178,4 +182,3 @@ export default function AdminLayout({ children }) {
     </div>
   );
 }
-

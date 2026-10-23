@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link, useSearchParams } from "@/lib/next-router";
 import { apiClient } from "@/api/apiClient";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,11 @@ export default function AdminStaff() {
   const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const focusedEmail = searchParams.get("email")?.toLowerCase();
+  const visibleStaff = focusedEmail
+    ? staff.filter((member) => member.user_email?.toLowerCase() === focusedEmail)
+    : staff;
 
   useEffect(() => {
     apiClient.entities.StaffPermission.list("-created_date").then(s => { setStaff(s); setLoading(false); });
@@ -109,6 +115,12 @@ export default function AdminStaff() {
             </h2>
             <p className="text-gray-400 text-sm mt-0.5">Invite team members and control their access</p>
           </div>
+          {focusedEmail && (
+            <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-gray-300">
+              Showing employee record for {focusedEmail}
+              <Link to="/admin/staff" className="text-primary hover:underline">Show all staff</Link>
+            </div>
+          )}
           <Button onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(EMPTY_FORM); }} className="bg-primary hover:bg-primary/90 gap-2">
             <Plus className="w-4 h-4" /> Add Staff
           </Button>
@@ -178,14 +190,14 @@ export default function AdminStaff() {
         {/* Staff List */}
         {loading ? (
           <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-        ) : staff.length === 0 ? (
+        ) : visibleStaff.length === 0 ? (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-16 text-center">
             <Users className="w-12 h-12 mx-auto text-gray-700 mb-3" />
-            <p className="text-gray-400">No staff members yet. Invite your first team member above.</p>
+            <p className="text-gray-400">{focusedEmail ? "No employee record found for this email." : "No staff members yet. Invite your first team member above."}</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {staff.map(member => (
+          {visibleStaff.map(member => (
               <div key={member.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
@@ -234,4 +246,3 @@ export default function AdminStaff() {
     </AdminLayout>
   );
 }
-

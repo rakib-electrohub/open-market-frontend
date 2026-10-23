@@ -11,13 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Plus, Package, Edit2, Trash2, Loader2, X, Save,
-  ImagePlus, Link2, Upload, Zap, GripVertical
+  ImagePlus, Link2, Upload, Zap, GripVertical, Store
 } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import FallbackImage from "@/components/ui/FallbackImage";
 import { getProductImageUrls } from "@/utils/imageUrls";
 import { getCategoriesFromSettings, getMainCategories, getSubCategories, getCategoryDisplayLabel } from "@/utils/categories";
+import { normalizeProductSpecifications, normalizeProductVariants } from "@/utils/productAttributes";
+import { sellerHasDashboardPermission } from "@/utils/sellerPermissions";
 
 const STATUS_COLORS = {
   pending: "bg-yellow-100 text-yellow-700",
@@ -25,7 +27,7 @@ const STATUS_COLORS = {
   rejected: "bg-red-100 text-red-700",
 };
 
-const EMPTY_FORM = { name: "", description: "", short_description: "", price: "", compare_price: "", category: "", main_category: "", subcategory: "", stock: "", sku: "", brand: "", images: [], video_url: "", is_active: true };
+const EMPTY_FORM = { name: "", description: "", short_description: "", price: "", compare_price: "", category: "", main_category: "", subcategory: "", stock: "", sku: "", brand: "", images: [], variants: [], specifications: [], video_url: "", is_active: true };
 
 export default function SellerProducts() {
   const settings = useAppSettings();
@@ -36,6 +38,8 @@ export default function SellerProducts() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [pickupAddressDraft, setPickupAddressDraft] = useState("");
+  const [savingPickupSettings, setSavingPickupSettings] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [imageMode, setImageMode] = useState("url"); // "url" | "upload"
   const [flashDialog, setFlashDialog] = useState(false);
@@ -53,6 +57,7 @@ export default function SellerProducts() {
         const sellers = await apiClient.entities.Seller.filter({ user_id: user.id });
         if (!sellers.length || sellers[0].status !== "approved") { navigate("/seller/dashboard"); return; }
         setSeller(sellers[0]);
+        setPickupAddressDraft(sellers[0].address || "");
         const [prods, categories] = await Promise.all([
           apiClient.entities.Product.filter({ seller_id: sellers[0].id }, "-created_date", 100),
           apiClient.entities.Category.list("-created_date", 200),
@@ -67,7 +72,7 @@ export default function SellerProducts() {
   const openCreate = () => { setEditing(null); setForm({ ...EMPTY_FORM }); setImageUrl(""); setImageMode("url"); setShowForm(true); };
   const openEdit = (p) => {
     setEditing(p);
-    setForm({ ...EMPTY_FORM, name: p.name || "", description: p.description || "", short_description: p.short_description || "", price: p.price || "", compare_price: p.compare_price || "", category: p.category || "", main_category: p.main_category || (p.category && !p.subcategory ? p.category : ""), subcategory: p.subcategory || "", stock: p.stock || "", sku: p.sku || "", brand: p.brand || "", images: p.images || [], is_active: p.is_active ?? true });
+    setForm({ ...EMPTY_FORM, name: p.name || "", description: p.description || "", short_description: p.short_description || "", price: p.price || "", compare_price: p.compare_price || "", category: p.category || "", main_category: p.main_category || (p.category && !p.subcategory ? p.category : ""), subcategory: p.subcategory || "", stock: p.stock || "", sku: p.sku || "", brand: p.brand || "", images: p.images || [], variants: normalizeProductVariants(p.variants).map((variant) => ({ ...variant, options: variant.options.map((option) => ({ ...option, price_adjustment: option.price_adjustment ? String(option.price_adjustment) : "" })) })), specifications: normalizeProductSpecifications(p.specifications), is_active: p.is_active ?? true });
     setImageUrl("");
     setImageMode("url");
     setShowForm(true);
@@ -92,42 +97,110 @@ export default function SellerProducts() {
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { notify("Please select an image file", "error"); return; }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     setUploadingImage(true);
     try {
-      const { file_url } = await uploadImageWithSizeCheck(file, notify);
-      setForm(f => ({ ...f, images: [...f.images, file_url] }));
+      const uploadedUrls = [];
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) {
+          notify(`${file.name} is not an image file`, "error");
+          continue;
+        }
+        const { file_url } = await uploadImageWithSizeCheck(file, notify);
+        uploadedUrls.push(file_url);
+      }
+      if (uploadedUrls.length) setForm(current => ({ ...current, images: [...current.images, ...uploadedUrls] }));
     } catch (error) {
       notify(error.message || 'File upload failed', 'error');
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
     }
-    setUploadingImage(false);
-    e.target.value = "";
   };
 
   const categories = getCategoriesFromSettings(settings);
   const mainCategories = getMainCategories(categoryOptions.length ? categoryOptions : categories.map((name) => ({ id: name, name, parent_id: null })));
   const subCategories = form.main_category ? getSubCategories(categoryOptions.length ? categoryOptions : [], mainCategories.find((cat) => cat.name === form.main_category)?.id) : [];
+  const marketplacePickupEnabled = settings.store_pickup_enabled === true
+    || String(settings.store_pickup_enabled).toLowerCase() === "true";
+  const sellerPickupEnabled = seller?.store_pickup_enabled === true
+    || String(seller?.store_pickup_enabled).toLowerCase() === "true";
+  const sellerPickupReady = sellerPickupEnabled && Boolean(String(seller?.address || "").trim());
 
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name || !form.price || !form.main_category) { notify("Name, price and main category are required", "error"); return; }
     setSaving(true);
     const categoryValue = getCategoryDisplayLabel(form.main_category, form.subcategory) || form.category;
-    const data = { ...form, category: categoryValue, main_category: form.main_category || "", subcategory: form.subcategory || "", price: parseFloat(form.price), compare_price: form.compare_price ? parseFloat(form.compare_price) : undefined, stock: parseInt(form.stock) || 0, seller_id: seller.id, seller_name: seller.store_name, approval_status: editing ? editing.approval_status : "pending" };
-    if (editing) {
-      const updated = await apiClient.entities.Product.update(editing.id, data);
-      setProducts(products.map(p => p.id === editing.id ? updated : p));
-      notify("Product updated!", "success");
-    } else {
-      const created = await apiClient.entities.Product.create(data);
-      setProducts([created, ...products]);
-      notify("Product submitted for approval!", "success");
+    const data = { ...form, variants: normalizeProductVariants(form.variants), specifications: normalizeProductSpecifications(form.specifications), category: categoryValue, main_category: form.main_category || "", subcategory: form.subcategory || "", price: parseFloat(form.price), compare_price: form.compare_price ? parseFloat(form.compare_price) : undefined, stock: parseInt(form.stock) || 0, seller_id: seller.id, seller_name: seller.store_name, approval_status: editing ? editing.approval_status : "pending" };
+    try {
+      if (editing) {
+        const updated = await apiClient.entities.Product.update(editing.id, data);
+        setProducts(products.map(p => p.id === editing.id ? updated : p));
+        notify("Product updated!", "success");
+      } else {
+        const created = await apiClient.entities.Product.create(data);
+        setProducts([created, ...products]);
+        notify("Product submitted for approval!", "success");
+      }
+      setShowForm(false);
+    } catch (error) {
+      notify(error.message || "Could not save product", "error");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setShowForm(false);
   };
+
+  const addVariant = () => setForm((current) => ({
+    ...current,
+    variants: [...(current.variants || []), { name: "", options: [] }],
+  }));
+  const updateVariant = (index, field, value) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, variantIndex) => variantIndex === index ? { ...variant, [field]: value } : variant),
+  }));
+  const addVariantOption = (variantIndex) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? { ...variant, options: [...variant.options, { value: "", price_adjustment: "" }] }
+      : variant),
+  }));
+  const updateVariantOption = (variantIndex, optionIndex, field, value) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? {
+          ...variant,
+          options: variant.options.map((option, nestedIndex) => nestedIndex === optionIndex
+            ? { ...option, [field]: value }
+            : option),
+        }
+      : variant),
+  }));
+  const removeVariantOption = (variantIndex, optionIndex) => setForm((current) => ({
+    ...current,
+    variants: current.variants.map((variant, index) => index === variantIndex
+      ? { ...variant, options: variant.options.filter((_, nestedIndex) => nestedIndex !== optionIndex) }
+      : variant),
+  }));
+  const removeVariant = (index) => setForm((current) => ({
+    ...current,
+    variants: current.variants.filter((_, variantIndex) => variantIndex !== index),
+  }));
+  const addSpecification = () => setForm((current) => ({
+    ...current,
+    specifications: [...(current.specifications || []), { name: "", value: "" }],
+  }));
+  const updateSpecification = (index, field, value) => setForm((current) => ({
+    ...current,
+    specifications: current.specifications.map((specification, specificationIndex) => specificationIndex === index
+      ? { ...specification, [field]: value }
+      : specification),
+  }));
+  const removeSpecification = (index) => setForm((current) => ({
+    ...current,
+    specifications: current.specifications.filter((_, specificationIndex) => specificationIndex !== index),
+  }));
 
   const openFlashRequest = (p) => {
     setFlashProduct(p);
@@ -169,6 +242,22 @@ export default function SellerProducts() {
     notify("Product deleted", "delete");
   };
 
+  const savePickupSettings = async (storePickupEnabled = sellerPickupEnabled) => {
+    setSavingPickupSettings(true);
+    try {
+      const updated = await apiClient.entities.Seller.update(seller.id, {
+        address: pickupAddressDraft.trim(),
+        store_pickup_enabled: storePickupEnabled,
+      });
+      setSeller(updated);
+      notify("Store pickup settings saved", "success");
+    } catch (error) {
+      notify(error.message || "Could not save store pickup settings", "error");
+    } finally {
+      setSavingPickupSettings(false);
+    }
+  };
+
   if (loading) return (
     <SellerLayout>
       <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
@@ -189,90 +278,202 @@ export default function SellerProducts() {
           </Button>
         </div>
 
+        {marketplacePickupEnabled && sellerHasDashboardPermission(seller, "store_settings") ? (
+          <section className="mb-6 rounded-xl border border-border bg-white p-4">
+          <div className="mb-3 flex items-start gap-3">
+            <Store className="mt-0.5 h-5 w-5 text-primary" />
+            <div>
+              <h2 className="font-semibold">Store pickup for all your products</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Turn this on once to offer pickup for all your approved products. Customers will use the store address below.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={sellerPickupEnabled}
+                onChange={(event) => savePickupSettings(event.target.checked)}
+                disabled={savingPickupSettings}
+                className="accent-primary"
+              />
+              Enable pickup for all my products
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={pickupAddressDraft}
+                onChange={(event) => setPickupAddressDraft(event.target.value)}
+                placeholder="Pickup address customers should visit"
+                aria-label="Store pickup address"
+              />
+              <Button
+                type="button"
+                onClick={() => savePickupSettings()}
+                disabled={savingPickupSettings}
+                variant="outline"
+                className="shrink-0"
+              >
+                {savingPickupSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                Save pickup setup
+              </Button>
+            </div>
+            {sellerPickupEnabled && !pickupAddressDraft.trim() && (
+              <p className="text-xs text-amber-700">Add and save your store address to make pickup available to customers.</p>
+            )}
+          </div>
+          </section>
+        ) : (
+          <p className="mb-6 rounded-xl border border-border bg-white p-4 text-sm text-muted-foreground">
+            Store pickup is currently disabled by the marketplace admin.
+          </p>
+        )}
+
         {/* Product Form Modal */}
-        {showForm && (
-          <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center overflow-y-auto py-8 px-4">
-            <div className="bg-white rounded-2xl w-full max-w-2xl p-6 my-auto shadow-2xl">
-              <div className="flex justify-between items-center mb-5">
-                <h2 className="font-poppins font-bold text-lg">{editing ? "Edit Product" : "Add New Product"}</h2>
-                <button onClick={() => setShowForm(false)} className="p-1.5 hover:bg-muted rounded-lg"><X className="w-4 h-4" /></button>
-              </div>
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-gray-900 border-gray-800 text-white">
+            <DialogHeader>
+              <DialogTitle className="text-white font-poppins">{editing ? "Edit Product" : "Add New Product"}</DialogTitle>
+            </DialogHeader>
               <form onSubmit={handleSave} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="sm:col-span-2">
-                    <Label className="text-xs font-medium">Product Name *</Label>
-                    <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Product name" className="mt-1" required />
+                    <Label className="text-xs font-medium text-gray-300">Product Name *</Label>
+                    <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Product name" className="mt-1 bg-gray-800 border-gray-700 text-white" required />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Sale Price (৳) *</Label>
-                    <Input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="0.00" className="mt-1" required />
+                    <Label className="text-xs font-medium text-gray-300">Price (৳) *</Label>
+                    <Input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="0.00" className="mt-1 bg-gray-800 border-gray-700 text-white" required />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Compare Price (৳)</Label>
-                    <Input type="number" value={form.compare_price} onChange={e => setForm({ ...form, compare_price: e.target.value })} placeholder="Original price" className="mt-1" />
+                    <Label className="text-xs font-medium text-gray-300">Compare Price (৳)</Label>
+                    <Input type="number" value={form.compare_price} onChange={e => setForm({ ...form, compare_price: e.target.value })} placeholder="Original price" className="mt-1 bg-gray-800 border-gray-700 text-white" />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Main Category *</Label>
-                    <select value={form.main_category} onChange={e => setForm({ ...form, main_category: e.target.value, subcategory: "" })} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-ring" required>
+                    <Label className="text-xs font-medium text-gray-300">Main Category *</Label>
+                    <select value={form.main_category} onChange={e => setForm({ ...form, main_category: e.target.value, subcategory: "" })} className="mt-1 w-full border border-gray-700 rounded-md px-3 py-2 text-sm bg-gray-800 text-white focus:outline-none focus:ring-1 focus:ring-primary" required>
                       <option value="">Select main category</option>
                       {mainCategories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Sub Category</Label>
-                    <select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} disabled={!form.main_category} className="mt-1 w-full border border-input rounded-md px-3 py-2 text-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60">
+                    <Label className="text-xs font-medium text-gray-300">Sub Category</Label>
+                    <select value={form.subcategory} onChange={e => setForm({ ...form, subcategory: e.target.value })} disabled={!form.main_category} className="mt-1 w-full border border-gray-700 rounded-md px-3 py-2 text-sm bg-gray-800 text-white focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60">
                       <option value="">None</option>
                       {subCategories.map(c => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Stock Quantity</Label>
-                    <Input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} placeholder="0" className="mt-1" />
+                    <Label className="text-xs font-medium text-gray-300">Brand</Label>
+                    <Input value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} placeholder="Brand name" className="mt-1 bg-gray-800 border-gray-700 text-white" />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Brand</Label>
-                    <Input value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} placeholder="Brand name" className="mt-1" />
+                    <Label className="text-xs font-medium text-gray-300">SKU</Label>
+                    <Input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="SKU-001" className="mt-1 bg-gray-800 border-gray-700 text-white" />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">SKU</Label>
-                    <Input value={form.sku} onChange={e => setForm({ ...form, sku: e.target.value })} placeholder="SKU-001" className="mt-1" />
+                    <Label className="text-xs font-medium text-gray-300">Stock</Label>
+                    <Input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} placeholder="0" className="mt-1 bg-gray-800 border-gray-700 text-white" />
                   </div>
                   <div className="sm:col-span-2">
-                    <Label className="text-xs font-medium">Short Description</Label>
-                    <Input value={form.short_description} onChange={e => setForm({ ...form, short_description: e.target.value })} placeholder="Brief product summary" className="mt-1" />
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <Label className="text-xs font-medium text-gray-300">Product Variants</Label>
+                        <p className="text-xs text-gray-500 mt-1">Add choices and optional price adjustments. Leave the adjustment at 0 to keep the base price.</p>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={addVariant} className="gap-1 border-gray-700 text-gray-300">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {(form.variants || []).map((variant, index) => (
+                        <div key={`variant-${index}`} className="space-y-2 rounded-lg border border-gray-800 p-3">
+                          <div className="flex gap-2">
+                            <Input value={variant.name} onChange={(event) => updateVariant(index, "name", event.target.value)} aria-label={`Variant ${index + 1} name`} placeholder="e.g. Color" className="bg-gray-800 border-gray-700 text-white" />
+                            <button type="button" onClick={() => removeVariant(index)} aria-label="Remove variant" className="p-2 text-muted-foreground hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                          {variant.options.map((option, optionIndex) => (
+                            <div key={`option-${optionIndex}`} className="grid grid-cols-[2fr_1fr_auto] gap-2">
+                              <Input value={option.value} onChange={(event) => updateVariantOption(index, optionIndex, "value", event.target.value)} aria-label={`${variant.name || `Variant ${index + 1}`} option ${optionIndex + 1}`} placeholder="e.g. Blue" className="bg-gray-800 border-gray-700 text-white" />
+                              <Input type="number" value={option.price_adjustment} onChange={(event) => updateVariantOption(index, optionIndex, "price_adjustment", event.target.value)} aria-label={`${option.value || "Option"} price adjustment`} placeholder="Extra ৳ (0)" className="bg-gray-800 border-gray-700 text-white" />
+                              <button type="button" onClick={() => removeVariantOption(index, optionIndex)} aria-label="Remove option" className="p-2 text-muted-foreground hover:text-red-500"><X className="w-4 h-4" /></button>
+                            </div>
+                          ))}
+                          <Button type="button" variant="outline" size="sm" onClick={() => addVariantOption(index)} className="border-gray-700 text-gray-300">Add option</Button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="sm:col-span-2">
-                    <Label className="text-xs font-medium">Full Description</Label>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <Label className="text-xs font-medium text-gray-300">Specifications</Label>
+                        <p className="text-xs text-gray-500 mt-1">Add details such as Material, Model, or Warranty.</p>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={addSpecification} className="gap-1 border-gray-700 text-gray-300">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                    <div className="space-y-2">
+                      {(form.specifications || []).map((specification, index) => (
+                        <div key={`specification-${index}`} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-center">
+                          <Input
+                            value={specification.name}
+                            onChange={(event) => updateSpecification(index, "name", event.target.value)}
+                            aria-label={`Specification ${index + 1} name`}
+                            placeholder="e.g. Material"
+                            className="bg-gray-800 border-gray-700 text-white"
+                          />
+                          <Input
+                            value={specification.value}
+                            onChange={(event) => updateSpecification(index, "value", event.target.value)}
+                            aria-label={`${specification.name || `Specification ${index + 1}`} value`}
+                            placeholder="e.g. Aluminum"
+                            className="bg-gray-800 border-gray-700 text-white"
+                          />
+                          <button type="button" onClick={() => removeSpecification(index)} aria-label="Remove specification" className="p-2 text-muted-foreground hover:text-red-500">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs font-medium text-gray-300">Short Description</Label>
+                    <RichTextEditor value={form.short_description} onChange={value => setForm(current => ({ ...current, short_description: value }))} minHeight={140} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs font-medium text-gray-300">Description</Label>
                     <RichTextEditor value={form.description} onChange={value => setForm({ ...form, description: value })} minHeight={260} />
                   </div>
                   {/* Images */}
                   <div className="sm:col-span-2">
-                    <Label className="text-xs font-medium mb-2 block">Product Images</Label>
+                    <Label className="text-xs font-medium text-gray-300 mb-2 block">Product Images</Label>
                     {/* Mode toggle */}
                     <div className="flex gap-1 p-1 bg-muted rounded-lg mb-3 w-fit">
                       <button type="button" onClick={() => setImageMode("url")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${imageMode === "url" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${imageMode === "url" ? "bg-gray-700 text-white shadow-sm" : "text-gray-400 hover:text-white"}`}>
                         <Link2 className="w-3 h-3" /> Paste URL
                       </button>
                       <button type="button" onClick={() => setImageMode("upload")}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${imageMode === "upload" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${imageMode === "upload" ? "bg-gray-700 text-white shadow-sm" : "text-gray-400 hover:text-white"}`}>
                         <Upload className="w-3 h-3" /> Upload File
                       </button>
                     </div>
 
                     {imageMode === "url" ? (
                       <div className="flex gap-2">
-                        <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://example.com/image.jpg" className="flex-1" onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addImage())} />
-                        <Button type="button" variant="outline" onClick={addImage} size="sm" className="gap-1 shrink-0"><ImagePlus className="w-3.5 h-3.5" /> Add</Button>
+                        <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://example.com/image.jpg" className="flex-1 bg-gray-800 border-gray-700 text-white" onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addImage())} />
+                        <Button type="button" variant="outline" onClick={addImage} size="sm" className="gap-1 shrink-0 border-gray-700 text-gray-300"><ImagePlus className="w-3.5 h-3.5" /> Add</Button>
                       </div>
                     ) : (
-                      <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary hover:bg-primary/5 transition-all ${uploadingImage ? "opacity-60 pointer-events-none" : ""}`}>
+                      <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-700 rounded-lg cursor-pointer hover:border-primary hover:bg-primary/5 transition-all ${uploadingImage ? "opacity-60 pointer-events-none" : ""}`}>
                         {uploadingImage ? (
                           <><Loader2 className="w-5 h-5 animate-spin text-primary mb-1" /><span className="text-xs text-muted-foreground">Uploading...</span></>
                         ) : (
                           <><Upload className="w-5 h-5 text-muted-foreground mb-1" /><span className="text-xs text-muted-foreground">Click to upload image</span><span className="text-[10px] text-muted-foreground/70 mt-0.5">JPG, PNG, WEBP up to 10MB</span></>
                         )}
-                        <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={handleFileUpload} />
                       </label>
                     )}
 
@@ -318,9 +519,9 @@ export default function SellerProducts() {
                     )}
                   </div>
                   <div className="sm:col-span-2">
-                    <Label className="text-xs font-medium">Product Video URL (optional)</Label>
-                    <Input value={form.video_url || ""} onChange={e => setForm({ ...form, video_url: e.target.value })} placeholder="YouTube link or direct .mp4 URL" className="mt-1" />
-                    <p className="text-xs text-muted-foreground mt-1">Customers will see a video player in the product details page.</p>
+                    <Label className="text-xs font-medium text-gray-300">Product Video URL (optional)</Label>
+                    <Input value={form.video_url || ""} onChange={e => setForm({ ...form, video_url: e.target.value })} placeholder="YouTube link or direct .mp4 URL" className="mt-1 bg-gray-800 border-gray-700 text-white" />
+                    <p className="text-xs text-gray-500 mt-1">Customers will see a video player in the product details page.</p>
                   </div>
                   <div className="sm:col-span-2 flex items-center gap-2">
                     <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} className="accent-primary" />
@@ -328,16 +529,15 @@ export default function SellerProducts() {
                   </div>
                 </div>
                 <div className="flex gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)} className="flex-1">Cancel</Button>
+                  <Button type="button" variant="outline" onClick={() => setShowForm(false)} className="flex-1 border-gray-700 text-gray-300">Cancel</Button>
                   <Button type="submit" disabled={saving} className="flex-1 bg-primary hover:bg-primary/90 gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     {editing ? "Save Changes" : "Submit for Approval"}
                   </Button>
                 </div>
               </form>
-            </div>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
         {/* Products list */}
         {products.length === 0 ? (
@@ -357,6 +557,7 @@ export default function SellerProducts() {
                     <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Price</th>
                     <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Stock</th>
                     <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Status</th>
+                    <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Pickup</th>
                     <th className="text-left text-xs font-semibold text-muted-foreground px-4 py-3">Actions</th>
                   </tr>
                 </thead>
@@ -385,6 +586,11 @@ export default function SellerProducts() {
                       <td className="px-4 py-3">
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[p.approval_status] || "bg-gray-100 text-gray-600"}`}>
                           {p.approval_status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-medium ${sellerPickupReady ? "text-green-600" : "text-muted-foreground"}`}>
+                          {sellerPickupReady ? "Seller enabled" : "Seller disabled"}
                         </span>
                       </td>
                       <td className="px-4 py-3">

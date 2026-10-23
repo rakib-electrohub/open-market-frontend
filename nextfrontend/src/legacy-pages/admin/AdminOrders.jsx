@@ -20,7 +20,7 @@ const STATUS_COLORS = {
 export default function AdminOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const [localSearch, setLocalSearch] = useState({ source: null, value: "" });
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -31,11 +31,11 @@ export default function AdminOrders() {
   const [shippingFeeEditValue, setShippingFeeEditValue] = useState(null);
   const [savingFee, setSavingFee] = useState(false);
   const [searchParams] = useSearchParams();
+  const urlSearch = searchParams.get('search') || '';
+  const search = localSearch.source === urlSearch ? localSearch.value : urlSearch;
   const notify = usePersistentToast();
 
   useEffect(() => {
-    const urlSearch = searchParams.get('search') || '';
-    setSearch(urlSearch);
     apiClient.entities.Order.list("-created_date", 200).then(o => { setOrders(o); setLoading(false); });
   }, [searchParams]);
 
@@ -131,11 +131,13 @@ export default function AdminOrders() {
             <div class="row"><span>Email</span><span>${order.customer_email || '-'}</span></div>
           </div>
           <div class="section">
-            <h2>Delivery</h2>
-            <div class="row"><span>Type</span><span>${order.delivery_address?.address_label || '-'}</span></div>
+            <h2>${order.fulfillment_method === 'pickup' ? 'Store Pickup' : 'Delivery'}</h2>
+            ${order.fulfillment_method === 'pickup'
+              ? order.pickup_locations?.map(location => `<div class="row"><span>${location.store_name || 'Store'}</span><span>${location.address || '-'}</span></div>`).join('') || '<div class="row"><span>Pickup location</span><span>Contact seller</span></div>'
+              : `<div class="row"><span>Type</span><span>${order.delivery_address?.address_label || '-'}</span></div>
             <div class="row"><span>Option</span><span>${order.delivery_option || '-'}</span></div>
             <div class="row"><span>Time</span><span>${order.delivery_address?.office_time || '-'}</span></div>
-            <div class="row"><span>Address</span><span>${order.delivery_address?.street || ''} ${order.delivery_address?.landmark ? '| ' + order.delivery_address?.landmark : ''} ${order.delivery_address?.area ? '| ' + order.delivery_address?.area : ''} ${order.delivery_address?.district ? '| ' + order.delivery_address?.district : ''} ${order.delivery_address?.division ? '| ' + order.delivery_address?.division : ''} ${order.delivery_address?.postal_code ? '| ' + order.delivery_address?.postal_code : ''}</span></div>
+            <div class="row"><span>Address</span><span>${order.delivery_address?.street || ''} ${order.delivery_address?.landmark ? '| ' + order.delivery_address?.landmark : ''} ${order.delivery_address?.area ? '| ' + order.delivery_address?.area : ''} ${order.delivery_address?.district ? '| ' + order.delivery_address?.district : ''} ${order.delivery_address?.division ? '| ' + order.delivery_address?.division : ''} ${order.delivery_address?.postal_code ? '| ' + order.delivery_address?.postal_code : ''}</span></div>`}
           </div>
           <div class="section">
             <h2>Items</h2>
@@ -158,7 +160,7 @@ export default function AdminOrders() {
           <div class="section">
             <div class="row"><span>Subtotal</span><span>৳${(order.subtotal || 0).toLocaleString()}</span></div>
             <div class="row"><span>Discount</span><span>৳${(order.discount_amount || 0).toLocaleString()}</span></div>
-            <div class="row"><span>Shipping</span><span>৳${(order.shipping_fee || 0).toLocaleString()}</span></div>
+            <div class="row"><span>${order.fulfillment_method === 'pickup' ? 'Pickup fee' : 'Shipping'}</span><span>${order.fulfillment_method === 'pickup' ? 'Free' : `৳${(order.shipping_fee || 0).toLocaleString()}`}</span></div>
             <div class="row total"><span>Total</span><span>৳${(order.total || 0).toLocaleString()}</span></div>
             <div class="row"><span>Payment</span><span>${order.payment_method || '-'}</span></div>
           </div>
@@ -185,7 +187,7 @@ export default function AdminOrders() {
         <div className="flex flex-col gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
-            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders, customers..." className="pl-9 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500" />
+            <Input value={search} onChange={e => setLocalSearch({ source: urlSearch, value: e.target.value })} placeholder="Search orders, customers..." className="pl-9 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500" />
           </div>
           <div className="flex flex-wrap gap-2">
             {["all", ...STATUSES].map(s => (
@@ -212,15 +214,15 @@ export default function AdminOrders() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-gray-800">
-                {["Order #", "Customer", "Items", "Total", "Payment", "Status", "Date", "Actions"].map(h => (
+                {["Order #", "Customer", "Items", "Total", "Fulfillment", "Payment", "Status", "Date", "Actions"].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-gray-500 font-medium text-xs uppercase">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary mx-auto" /></td></tr>
+                  <tr><td colSpan={9} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary mx-auto" /></td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-12 text-gray-500">No orders found</td></tr>
+                  <tr><td colSpan={9} className="text-center py-12 text-gray-500">No orders found</td></tr>
                 ) : filtered.map(order => (
                   <tr key={order.id} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
                     <td className="px-4 py-3 text-primary font-mono font-semibold text-xs">
@@ -234,6 +236,7 @@ export default function AdminOrders() {
                     </td>
                     <td className="px-4 py-3 text-gray-400">{order.items?.length || 0}</td>
                     <td className="px-4 py-3 text-white font-semibold">৳{order.total?.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-gray-400 capitalize">{order.fulfillment_method === "pickup" ? "Store pickup" : "Delivery"}</td>
                     <td className="px-4 py-3 text-gray-400 uppercase text-xs">{order.payment_method}</td>
                     <td className="px-4 py-3">
                       <select value={order.status} onChange={e => updateStatus(order.id, e.target.value)}
@@ -273,16 +276,30 @@ export default function AdminOrders() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Customer</p><p className="font-semibold">{selectedOrder.customer_name}</p><p className="text-gray-400">{selectedOrder.customer_phone}</p>{selectedOrder.customer_email && <p className="text-gray-400 text-xs">{selectedOrder.customer_email}</p>}</div>
                     <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Total</p><p className="font-poppins font-bold text-xl text-primary">৳{selectedOrder.total?.toLocaleString()}</p><p className="text-gray-400 uppercase text-xs">{selectedOrder.payment_method}</p></div>
-                    <div className="bg-gray-800 rounded-xl p-3 col-span-2"><p className="text-gray-400 text-xs mb-1">Delivery Address</p>
-                      <p>{selectedOrder.delivery_address?.street || '-'}</p>
-                      <p>{selectedOrder.delivery_address?.landmark || ''}</p>
-                      <p>{selectedOrder.delivery_address?.area || ''}{selectedOrder.delivery_address?.district ? `, ${selectedOrder.delivery_address?.district}` : ''}{selectedOrder.delivery_address?.division ? `, ${selectedOrder.delivery_address?.division}` : ''}{selectedOrder.delivery_address?.postal_code ? `, ${selectedOrder.delivery_address?.postal_code}` : ''}</p>
+                    <div className="bg-gray-800 rounded-xl p-3 col-span-2"><p className="text-gray-400 text-xs mb-1">{selectedOrder.fulfillment_method === "pickup" ? "Store Pickup" : "Delivery Address"}</p>
+                      {selectedOrder.fulfillment_method === "pickup" ? (
+                        selectedOrder.pickup_locations?.length ? selectedOrder.pickup_locations.map((location) => (
+                          <div key={location.id} className="mb-2 last:mb-0">
+                            <p className="font-semibold">{location.store_name || "Seller store"}</p>
+                            <p>{location.address || "Contact seller for pickup details"}</p>
+                          </div>
+                        )) : <p>Contact seller to arrange pickup.</p>
+                      ) : (
+                        <>
+                          <p>{selectedOrder.delivery_address?.street || '-'}</p>
+                          <p>{selectedOrder.delivery_address?.landmark || ''}</p>
+                          <p>{selectedOrder.delivery_address?.area || ''}{selectedOrder.delivery_address?.district ? `, ${selectedOrder.delivery_address?.district}` : ''}{selectedOrder.delivery_address?.division ? `, ${selectedOrder.delivery_address?.division}` : ''}{selectedOrder.delivery_address?.postal_code ? `, ${selectedOrder.delivery_address?.postal_code}` : ''}</p>
+                        </>
+                      )}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Delivery Type</p><p className="font-medium capitalize">{selectedOrder.delivery_address?.address_label || 'home'}</p></div>
-                    <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Delivery Option</p><p className="font-medium capitalize">{selectedOrder.delivery_option || 'default'}</p></div>
+                    <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Fulfillment Method</p><p className="font-medium capitalize">{selectedOrder.fulfillment_method === "pickup" ? "Store pickup" : "Delivery"}</p></div>
+                    {selectedOrder.fulfillment_method !== "pickup" && <>
+                      <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Delivery Type</p><p className="font-medium capitalize">{selectedOrder.delivery_address?.address_label || 'home'}</p></div>
+                      <div className="bg-gray-800 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Delivery Option</p><p className="font-medium capitalize">{selectedOrder.delivery_option || 'default'}</p></div>
+                    </>}
                     {selectedOrder.delivery_address?.office_time && (
                       <div className="bg-gray-800 rounded-xl p-3 col-span-2"><p className="text-gray-400 text-xs mb-1">Office Delivery Time</p><p className="font-medium">{selectedOrder.delivery_address?.office_time}</p></div>
                     )}
@@ -306,7 +323,7 @@ export default function AdminOrders() {
 
                   <div className="bg-gray-800 rounded-xl p-3 space-y-1">
                     {selectedOrder.discount_amount > 0 && <div className="flex justify-between text-green-400"><span>Discount</span><span>-৳{selectedOrder.discount_amount?.toLocaleString()}</span></div>}
-                    <div className="flex justify-between"><span className="text-gray-400">Shipping</span><span>৳{selectedOrder.shipping_fee || 0}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-400">{selectedOrder.fulfillment_method === "pickup" ? "Pickup fee" : "Shipping"}</span><span>{selectedOrder.fulfillment_method === "pickup" ? "Free" : `৳${selectedOrder.shipping_fee || 0}`}</span></div>
                     <div className="flex justify-between font-bold text-base border-t border-gray-700 pt-1"><span>Total</span><span className="text-primary">৳{selectedOrder.total?.toLocaleString()}</span></div>
                     {selectedOrder.payment_method !== "cod" && (
                       <div className="flex justify-between text-sm pt-2"><span>Payment</span><span className="capitalize">{selectedOrder.payment_method}</span></div>
@@ -326,6 +343,44 @@ export default function AdminOrders() {
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase text-gray-400">Change History</p>
+                    {selectedOrder.order_change_history?.length ? (
+                      <ol className="space-y-2">
+                        {[...selectedOrder.order_change_history].reverse().map((entry, index) => (
+                          <li key={`${entry.timestamp}-${index}`} className="rounded-xl bg-gray-800 p-3">
+                            <p className="font-medium">
+                              {entry.actor?.name || entry.actor?.email || "Unknown user"}
+                              <span className="ml-2 text-xs font-normal capitalize text-gray-400">{entry.actor?.role || "user"}</span>
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {entry.actor?.role_title ? `${entry.actor.role_title} · ` : ""}
+                              {entry.actor?.store_name ? `${entry.actor.store_name} · ` : ""}
+                              {formatOrderDateTime(entry.timestamp)}
+                            </p>
+                            {entry.actor?.role === "employee" && entry.actor?.email && (
+                              <Link
+                                to={`/admin/staff?email=${encodeURIComponent(entry.actor.email)}`}
+                                className="mt-1 inline-block text-xs text-primary hover:underline"
+                              >
+                                View employee details
+                              </Link>
+                            )}
+                            <ul className="mt-2 space-y-1 text-xs text-gray-300">
+                              {entry.changes?.map((change, changeIndex) => (
+                                <li key={`${change.field}-${changeIndex}`}>
+                                  <span className="capitalize">{change.field.replaceAll("_", " ")}</span>: {String(change.from ?? "—")} → {String(change.to ?? "—")}
+                                </li>
+                              ))}
+                            </ul>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="rounded-xl bg-gray-800 p-3 text-xs text-gray-400">No tracked changes yet.</p>
+                    )}
                   </div>
                 </>
               ) : (
@@ -347,11 +402,22 @@ export default function AdminOrders() {
                     </div>
 
                     <div className="rounded-2xl border border-gray-700 p-3 bg-gray-900">
-                      <p className="text-gray-400 text-xs uppercase mb-2">Delivery Details</p>
-                      <p className="text-sm"><span className="font-medium">Type:</span> {selectedOrder.delivery_address?.address_label || 'home'}</p>
-                      <p className="text-sm"><span className="font-medium">Option:</span> {selectedOrder.delivery_option || 'default'}</p>
-                      {selectedOrder.delivery_address?.office_time && <p className="text-sm"><span className="font-medium">Office Time:</span> {selectedOrder.delivery_address?.office_time}</p>}
-                      <p className="text-sm mt-2"><span className="font-medium">Address:</span> {selectedOrder.delivery_address?.street || '-'}{selectedOrder.delivery_address?.landmark ? `, ${selectedOrder.delivery_address?.landmark}` : ''}{selectedOrder.delivery_address?.area ? `, ${selectedOrder.delivery_address?.area}` : ''}{selectedOrder.delivery_address?.district ? `, ${selectedOrder.delivery_address?.district}` : ''}{selectedOrder.delivery_address?.division ? `, ${selectedOrder.delivery_address?.division}` : ''}{selectedOrder.delivery_address?.postal_code ? `, ${selectedOrder.delivery_address?.postal_code}` : ''}</p>
+                      <p className="text-gray-400 text-xs uppercase mb-2">{selectedOrder.fulfillment_method === "pickup" ? "Store Pickup Details" : "Delivery Details"}</p>
+                      {selectedOrder.fulfillment_method === "pickup" ? (
+                        selectedOrder.pickup_locations?.length ? selectedOrder.pickup_locations.map((location) => (
+                          <div key={location.id} className="mb-2 last:mb-0">
+                            <p className="text-sm font-medium">{location.store_name || "Seller store"}</p>
+                            <p className="text-sm">{location.address || "Contact seller to arrange pickup"}</p>
+                          </div>
+                        )) : <p className="text-sm">Contact seller to arrange pickup.</p>
+                      ) : (
+                        <>
+                          <p className="text-sm"><span className="font-medium">Type:</span> {selectedOrder.delivery_address?.address_label || 'home'}</p>
+                          <p className="text-sm"><span className="font-medium">Option:</span> {selectedOrder.delivery_option || 'default'}</p>
+                          {selectedOrder.delivery_address?.office_time && <p className="text-sm"><span className="font-medium">Office Time:</span> {selectedOrder.delivery_address?.office_time}</p>}
+                          <p className="text-sm mt-2"><span className="font-medium">Address:</span> {selectedOrder.delivery_address?.street || '-'}{selectedOrder.delivery_address?.landmark ? `, ${selectedOrder.delivery_address?.landmark}` : ''}{selectedOrder.delivery_address?.area ? `, ${selectedOrder.delivery_address?.area}` : ''}{selectedOrder.delivery_address?.district ? `, ${selectedOrder.delivery_address?.district}` : ''}{selectedOrder.delivery_address?.division ? `, ${selectedOrder.delivery_address?.division}` : ''}{selectedOrder.delivery_address?.postal_code ? `, ${selectedOrder.delivery_address?.postal_code}` : ''}</p>
+                        </>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -374,7 +440,9 @@ export default function AdminOrders() {
                       <div className="flex justify-between text-sm items-center">
                         <span>Shipping</span>
                         <div className="flex items-center gap-2">
-                          {editingFeeOrderId === selectedOrder.id ? (
+                          {selectedOrder.fulfillment_method === "pickup" ? (
+                            <span className="text-green-400">No fee (pickup)</span>
+                          ) : editingFeeOrderId === selectedOrder.id ? (
                             <>
                               <input type="number" value={shippingFeeEditValue ?? selectedOrder.shipping_fee ?? 0} onChange={(e) => setShippingFeeEditValue(e.target.value)} className="w-28 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-white text-sm" />
                               <button onClick={() => saveShippingFee(selectedOrder.id, shippingFeeEditValue)} disabled={savingFee} className="px-3 py-1 rounded bg-primary text-white text-sm">{savingFee ? 'Saving...' : 'Save'}</button>
@@ -407,4 +475,3 @@ export default function AdminOrders() {
     </AdminLayout>
   );
 }
-
